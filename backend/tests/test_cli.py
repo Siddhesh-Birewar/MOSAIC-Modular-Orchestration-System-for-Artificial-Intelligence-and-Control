@@ -50,8 +50,8 @@ class FakeClient:
             return Response({"models": [{"name": "gpt-oss:20b", "loaded": True}]})
         return Response({"status": "ok"})
 
-    def patch(self, url, json=None):
-        self.calls.append(("patch", url, json))
+    def patch(self, url, json=None, headers=None):
+        self.calls.append(("patch", url, json, headers))
         return Response({"model": json["model"]})
 
     def stream(self, method, url, json=None, headers=None):
@@ -74,7 +74,7 @@ def test_parse_sse_events():
 def test_cli_commands_and_conversation_lifecycle():
     client = FakeClient()
     output = []
-    cli = MosaicCLI("http://localhost:8000", client=client, output_fn=output.append)
+    cli = MosaicCLI("http://localhost:8000", token="opaque-test-token", client=client, output_fn=output.append)
     cli._new_conversation()
     assert cli.conversation_id == "conversation-1"
     assert cli.command("/model qwen3:8b")
@@ -87,6 +87,12 @@ def test_cli_commands_and_conversation_lifecycle():
     assert not cli.command("/exit")
     assert any("Commands:" in item for item in output)
     assert client.calls[-1][0] == "patch" or any(call[0] == "patch" for call in client.calls)
+    assert next(call for call in client.calls if call[1].endswith("/conversations"))[3] == {
+        "Authorization": "Bearer opaque-test-token"
+    }
+    assert next(call for call in client.calls if call[0] == "patch")[3] == {
+        "Authorization": "Bearer opaque-test-token"
+    }
 
 
 def test_cli_streaming_metrics_and_approval():

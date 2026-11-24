@@ -15,3 +15,5 @@
 - These application checks are not equivalent to full operating-system sandbox isolation. A compromised backend process still has the permissions of its user account.
 - Do not download large models without explicit user approval. Keep permissions visible and revocable through configuration and the authenticated API.
 - Protect local data with least-privilege file access; document encryption and backup choices before persisting sensitive data.
+- Phase 4's SQLite database contains personal conversations, notes, learning records, and curated memories. It defaults outside the repository, uses restrictive permissions where supported, and never stores API tokens. Backups must receive the same protection; stop the application or use SQLite's backup API for consistent copies. Database encryption at rest is not currently provided.
+- Conversation, chat, notes, learning, and memory endpoints require the configured bearer token. Memories are created only through explicit user-facing API requests; retrieval is bounded and labeled untrusted context. Conversation logs are not automatically promoted into memory.

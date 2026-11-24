@@ -6,9 +6,11 @@ from fastapi import FastAPI
 
 from app.api.health import router as health_router
 from app.api.intelligence import router as intelligence_router
+from app.api.personal_data import router as personal_data_router
 from app.api.tools import router as tools_router
 from app.core.config import Settings
 from app.core.logging import configure_logging
+from app.database import Database
 from app.conversations import ConversationStore
 from app.models.ollama_client import OllamaClient
 from app.security.approvals import ApprovalManager
@@ -30,7 +32,8 @@ def create_app(settings: Settings | None = None, ollama: OllamaClient | None = N
     async def lifespan(app: FastAPI):
         app.state.ollama = ollama or OllamaClient(config.ollama_url, config.request_timeout)
         app.state.settings = config
-        app.state.conversations = ConversationStore()
+        app.state.database = Database(config.database_path)
+        app.state.conversations = ConversationStore(app.state.database)
         app.state.inference_lock = asyncio.Lock()
         app.state.file_access = FileAccess(config.allowed_roots)
         app.state.permission_manager = PermissionManager(
@@ -51,12 +54,16 @@ def create_app(settings: Settings | None = None, ollama: OllamaClient | None = N
             app.state.approvals,
             app.state.audit,
         )
-        yield
+        try:
+            yield
+        finally:
+            app.state.database.close()
 
     app = FastAPI(title="MOSAIC API", version="0.2.0", lifespan=lifespan)
     app.include_router(health_router)
     app.include_router(intelligence_router)
     app.include_router(tools_router)
+    app.include_router(personal_data_router)
     return app
 
 

@@ -12,6 +12,8 @@ from app.tools.base import RiskLevel, Tool
 from app.security.permissions import PermissionRequirement
 from app.tools.schemas import EmptyInput, ObjectOutput
 
+AUTH_HEADERS = {"Authorization": f"Bearer {'s' * 40}"}
+
 
 class FakeOllama:
     def __init__(self):
@@ -77,7 +79,7 @@ def test_configuration_loading(monkeypatch):
 
 def test_health_models_and_chat():
     fake = FakeOllama()
-    with TestClient(create_app(Settings(api_token="s" * 40), fake)) as client:
+    with TestClient(create_app(Settings(api_token="s" * 40), fake), headers=AUTH_HEADERS) as client:
         assert client.get("/health").json() == {"status": "ok"}
         assert client.get("/health/ollama").status_code == 200
         model = client.get("/models").json()["models"][0]
@@ -91,7 +93,7 @@ def test_health_models_and_chat():
 
 
 def test_ollama_connection_failure_returns_sanitized_503():
-    with TestClient(create_app(Settings(), BrokenOllama())) as client:
+    with TestClient(create_app(Settings(api_token="s" * 40), BrokenOllama()), headers=AUTH_HEADERS) as client:
         assert client.get("/health/ollama").status_code == 200
         response = client.post("/chat", json={"message": "hello"})
         assert response.status_code == 503
@@ -100,13 +102,13 @@ def test_ollama_connection_failure_returns_sanitized_503():
 
 @pytest.mark.parametrize("payload", [{}, {"message": ""}, {"message": "x" * 20001}])
 def test_invalid_chat_requests(payload):
-    with TestClient(create_app(Settings(), FakeOllama())) as client:
+    with TestClient(create_app(Settings(api_token="s" * 40), FakeOllama()), headers=AUTH_HEADERS) as client:
         assert client.post("/chat", json=payload).status_code == 422
 
 
 def test_prompt_multi_turn_context_trimming_and_conversation_isolation():
     fake = FakeOllama()
-    with TestClient(create_app(Settings(context_limit=3), fake)) as client:
+    with TestClient(create_app(Settings(api_token="s" * 40, context_limit=3), fake), headers=AUTH_HEADERS) as client:
         first = client.post("/conversations", json={}).json()
         second = client.post("/conversations", json={}).json()
         assert first["id"] != second["id"]
@@ -122,7 +124,7 @@ def test_prompt_multi_turn_context_trimming_and_conversation_isolation():
 
 
 def test_model_selection_invalid_ids_and_reset():
-    with TestClient(create_app(Settings(), FakeOllama())) as client:
+    with TestClient(create_app(Settings(api_token="s" * 40), FakeOllama()), headers=AUTH_HEADERS) as client:
         conversation = client.post("/conversations", json={"model": "qwen3:8b"}).json()
         assert conversation["model"] == "qwen3:8b"
         invalid = client.patch(
@@ -137,7 +139,7 @@ def test_model_selection_invalid_ids_and_reset():
 
 def test_streaming_response_and_context_cleanup():
     fake = FakeOllama()
-    with TestClient(create_app(Settings(), fake)) as client:
+    with TestClient(create_app(Settings(api_token="s" * 40), fake), headers=AUTH_HEADERS) as client:
         response = client.post("/chat/stream", json={"message": "stream me"})
         assert response.status_code == 200
         assert "event: start" in response.text
@@ -149,7 +151,7 @@ def test_streaming_response_and_context_cleanup():
 
 
 def test_stream_failure_emits_sanitized_error_event():
-    with TestClient(create_app(Settings(), BrokenOllama())) as client:
+    with TestClient(create_app(Settings(api_token="s" * 40), BrokenOllama()), headers=AUTH_HEADERS) as client:
         response = client.post("/chat/stream", json={"message": "hello"})
         assert response.status_code == 200
         assert "event: error" in response.text
@@ -202,7 +204,7 @@ def test_model_availability_and_unload_endpoint():
 def test_switching_models_unloads_only_other_mosaic_model():
     fake = FakeOllama()
     fake.loaded = [{"name": "gpt-oss:20b"}, {"name": "nomic-embed-text:latest"}]
-    with TestClient(create_app(Settings(), fake)) as client:
+    with TestClient(create_app(Settings(api_token="s" * 40), fake), headers=AUTH_HEADERS) as client:
         conversation = client.post("/conversations", json={"model": "qwen3:8b"}).json()
         response = client.post(
             "/chat", json={"conversation_id": conversation["id"], "message": "switch"}
@@ -262,10 +264,10 @@ def test_structured_tool_call_is_validated_executed_and_result_marked_untrusted(
         assert fake.requests[0][1]
 
     unauthenticated = ToolCallingOllama()
-    with TestClient(create_app(Settings(), unauthenticated)) as client:
+    with TestClient(create_app(Settings(api_token="s" * 40), unauthenticated)) as client:
         client.app.state.tool_registry.register(HostileResultTool())
         response = client.post("/chat/stream", json={"message": "Read system status."})
-        assert "authenticated CLI access" in response.text
-        assert len(unauthenticated.requests) == 1
-        assert unauthenticated.requests[0][1] == []
+        assert response.status_code == 401
+        assert len(unauthenticated.requests) == 0
+        assert unauthenticated.requests == []
         assert client.app.state.audit.recent() == []

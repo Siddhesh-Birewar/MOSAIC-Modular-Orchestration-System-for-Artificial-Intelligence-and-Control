@@ -4,7 +4,7 @@ Modular Orchestration System for Artificial Intelligence and Control.
 
 A local-first personal AI assistant.
 
-Development status: Phase 3 — safe tools and terminal CLI in progress.
+Development status: Phase 4 — persistent memory, notes and learning in progress.
 
 ## Backend quick start
 
@@ -25,17 +25,35 @@ cd backend
 
 If the backend virtual environment is active, `uvicorn app.main:app --env-file ../.env --host 127.0.0.1 --port 8000` is equivalent. In either case, run from `backend/` so `--env-file ../.env` resolves to the repository-root configuration.
 
-The API exposes health and model discovery endpoints, in-memory conversation management,
+The API exposes health and model discovery endpoints, persistent conversation management,
 `POST /chat`, and `POST /chat/stream` (SSE). See `docs/ARCHITECTURE.md` for route and
-configuration details. Conversations are lost when the backend restarts; SQLite belongs
-to Phase 4.
+configuration details. Set `MOSAIC_API_TOKEN` in `.env` before using personal or chat
+endpoints; those routes require bearer authentication.
+
+## Local persistence
+
+Phase 4 stores conversations, notes, learning records, and curated memories in SQLite.
+`MOSAIC_DB_PATH` optionally selects the database file. The default is outside the
+repository: `~/Library/Application Support/MOSAIC/mosaic.sqlite3` on macOS,
+`~/.local/share/MOSAIC/mosaic.sqlite3` on Linux, and `%LOCALAPPDATA%/MOSAIC/mosaic.sqlite3`
+on Windows. The database directory and file use restrictive permissions where supported;
+SQLite foreign keys and transactional versioned migrations are enabled. `.gitignore`
+excludes database files and SQLite sidecars.
+
+Back up the database only while MOSAIC is stopped, or use SQLite's online backup API; do
+not copy a live database file without accounting for journal state. The database contains
+personal conversation and note content, so protect backups like the original. Verify
+restart persistence locally by creating a conversation or note, stopping the backend,
+restarting it with the same `MOSAIC_DB_PATH`, and fetching that record using the bearer
+token. Do not use real personal content in automated tests.
 
 ## Interactive CLI and safe tools
 
 Create `.env` from `.env.example`, set `MOSAIC_API_TOKEN` to a locally generated random
 value of at least 32 characters, and start the backend with `--env-file ../.env` from
-`backend/`. The token is required for tool invocation, approvals, permission inspection,
-audit history, and for model-selected tools through the CLI. Keep the token only in local
+`backend/`. The token is required for conversations, chat, notes, learning, memories, tool
+invocation, approvals, permission inspection, and audit history. The CLI supplies it to
+personal routes and model-selected tools. Keep the token only in local
 configuration; it is never included in prompts or logs.
 
 Generate a token locally with `python -c 'import secrets; print(secrets.token_urlsafe(32))'`

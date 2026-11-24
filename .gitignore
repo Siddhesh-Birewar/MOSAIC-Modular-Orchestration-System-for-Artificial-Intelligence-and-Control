@@ -5,7 +5,9 @@ __pycache__/
 .coverage
 .env
 *.sqlite3
+*.sqlite3-*
 *.db
+*.db-*
 *.egg-info/
 .DS_Store
 dist/
