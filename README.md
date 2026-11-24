@@ -20,8 +20,10 @@ Copy `.env.example` to `.env` to override local Ollama settings. Then run the AP
 
 ```sh
 cd backend
-uvicorn app.main:app --env-file ../.env --host 127.0.0.1 --port 8000
+.venv/bin/uvicorn app.main:app --env-file ../.env --host 127.0.0.1 --port 8000
 ```
+
+If the backend virtual environment is active, `uvicorn app.main:app --env-file ../.env --host 127.0.0.1 --port 8000` is equivalent. In either case, run from `backend/` so `--env-file ../.env` resolves to the repository-root configuration.
 
 The API exposes health and model discovery endpoints, in-memory conversation management,
 `POST /chat`, and `POST /chat/stream` (SSE). See `docs/ARCHITECTURE.md` for route and
@@ -48,8 +50,12 @@ set +a
 
 Filesystem tools are disabled until `MOSAIC_ALLOWED_ROOTS` names specific directories.
 Do not use the whole home folder or this repository as a default. Values are separated by
-the platform path separator. Reads are UTF-8 text only, bounded to 256 KB, and the tool
-result limit is 32 KB. No write or delete operation exists. Application launches are
+the platform path separator. On macOS, `/tmp` commonly resolves to `/private/tmp`; use the
+canonical path (for example, inspect it with `pwd -P`) consistently in both the allowed
+root and tool request. MOSAIC may reject a `/tmp/...` spelling when the configured root
+is `/private/tmp/...`; do not disable canonical-path or no-follow checks to work around
+this. Reads are UTF-8 text only, bounded to 256 KB; directory listings and searches inspect
+at most 2,000 entries, and tool results are capped at 32 KB. No write or delete operation exists. Application launches are
 allowlisted and require a separate CLI approval each time.
 
 Run the terminal client from the repository root:

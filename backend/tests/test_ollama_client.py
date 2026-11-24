@@ -235,6 +235,139 @@ def test_stream_parses_only_structured_tool_calls_and_strips_reasoning(monkeypat
     asyncio.run(check())
 
 
+@pytest.mark.parametrize("repeat_in_final_chunk", [False, True])
+def test_stream_preserves_tool_calls_across_chunks_without_duplicates(monkeypatch, repeat_in_final_chunk):
+    partial_call = {
+        "function": {"index": 0, "name": "filesystem_read_", "arguments": {"path": "/safe/"}}
+    }
+    call = {
+        "function": {
+            "index": 0,
+            "name": "filesystem_read_text_file",
+            "arguments": {"path": "/safe/note.txt"},
+        }
+    }
+    events = [
+        {
+            "message": {"role": "assistant", "content": "Checking ", "tool_calls": [partial_call]},
+            "done": False,
+        },
+        {
+            "message": {"role": "assistant", "content": "the file", "tool_calls": [call]},
+            "done": False,
+        },
+        {
+            "message": {
+                "role": "assistant",
+                **({"tool_calls": [call]} if repeat_in_final_chunk else {}),
+                "thinking": "private",
+            },
+            "done": True,
+        },
+    ]
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            for event in events:
+                yield json.dumps(event)
+
+    class StreamContext:
+        async def __aenter__(self):
+            return Response()
+
+        async def __aexit__(self, *args):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def stream(self, *args, **kwargs):
+            return StreamContext()
+
+    monkeypatch.setattr("app.models.ollama_client.httpx.AsyncClient", FakeAsyncClient)
+
+    async def check():
+        stream = OllamaClient("http://127.0.0.1:11434").stream_chat(
+            "gpt-oss:20b", [{"role": "user", "content": "read"}], tools=[{"type": "function"}]
+        )
+        first = await anext(stream)
+        middle = await anext(stream)
+        final = await anext(stream)
+        assert first.tool_calls is None
+        assert middle.tool_calls is None
+        assert final.done
+        assert final.tool_calls == [call]
+        assert final.assistant_message["tool_calls"] == [call]
+        assert final.assistant_message["content"] == "Checking the file"
+        assert "thinking" not in final.assistant_message
+        with pytest.raises(StopAsyncIteration):
+            await anext(stream)
+
+    asyncio.run(check())
+
+
+def test_stream_accumulates_distinct_tool_calls_from_separate_chunks(monkeypatch):
+    calls = [
+        {"function": {"name": "system_memory", "arguments": {}}},
+        {"function": {"name": "system_battery", "arguments": {}}},
+    ]
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            for event in (
+                {"message": {"role": "assistant", "tool_calls": [calls[0]]}, "done": False},
+                {"message": {"role": "assistant", "tool_calls": [calls[1]]}, "done": False},
+                {"message": {"role": "assistant"}, "done": True},
+            ):
+                yield json.dumps(event)
+
+    class StreamContext:
+        async def __aenter__(self):
+            return Response()
+
+        async def __aexit__(self, *args):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def stream(self, *args, **kwargs):
+            return StreamContext()
+
+    monkeypatch.setattr("app.models.ollama_client.httpx.AsyncClient", FakeAsyncClient)
+
+    async def check():
+        stream = OllamaClient("http://127.0.0.1:11434").stream_chat(
+            "gpt-oss:20b", [{"role": "user", "content": "check memory and battery"}],
+            tools=[{"type": "function"}],
+        )
+        chunks = [chunk async for chunk in stream]
+        assert chunks[-1].tool_calls == calls
+        assert chunks[-1].assistant_message["tool_calls"] == calls
+
+    asyncio.run(check())
+
+
 @pytest.mark.parametrize(
     ("status", "exception"),
     [(404, OllamaModelNotFoundError), (500, OllamaInferenceError)],

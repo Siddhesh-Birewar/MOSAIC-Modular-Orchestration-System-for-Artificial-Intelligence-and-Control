@@ -239,3 +239,35 @@ def test_action_api_rejects_unauthenticated_and_allows_authenticated_read_tool()
             json={"tool_id": "filesystem_read_text_file", "arguments": {"path": "/tmp/private.txt"}, "conversation_id": conversation_id},
             headers=headers,
         ).status_code == 403
+
+
+def test_file_read_api_enforces_root_traversal_and_symlink_boundaries(tmp_path):
+    root = tmp_path / "authorized"
+    root.mkdir()
+    inside = root / "inside.txt"
+    inside.write_text("authorized", encoding="utf-8")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("private", encoding="utf-8")
+    (root / "escape.txt").symlink_to(outside)
+    token = "a" * 40
+    conversation_id = "1f7bb4e8-f79a-40ac-89d9-28f5b00ca607"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with TestClient(create_app(Settings(api_token=token, allowed_roots=(str(root),)))) as client:
+        def read(path: str):
+            return client.post(
+                "/tools/invoke",
+                json={
+                    "tool_id": "filesystem_read_text_file",
+                    "arguments": {"path": path},
+                    "conversation_id": conversation_id,
+                },
+                headers=headers,
+            )
+
+        allowed = read(str(inside))
+        assert allowed.status_code == 200
+        assert allowed.json()["result"]["result"]["content"] == "authorized"
+        assert read(str(outside)).status_code == 403
+        assert read(str(root / ".." / "outside.txt")).status_code == 403
+        assert read(str(root / "escape.txt")).status_code == 403
