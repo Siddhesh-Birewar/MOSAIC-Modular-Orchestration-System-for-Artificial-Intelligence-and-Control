@@ -57,7 +57,9 @@ class MosaicCLI:
 
     def _new_conversation(self) -> None:
         body = {"model": self.model} if self.model else {}
-        response = self.client.post(f"{self.backend_url}/conversations", json=body)
+        response = self.client.post(
+            f"{self.backend_url}/conversations", json=body, headers=self._auth_headers()
+        )
         response.raise_for_status()
         conversation = response.json()
         self.conversation_id = conversation["id"]
@@ -78,7 +80,10 @@ class MosaicCLI:
         elif name == "/new":
             self._new_conversation()
         elif name == "/clear":
-            response = self.client.post(f"{self.backend_url}/conversations/{self.conversation_id}/reset")
+            response = self.client.post(
+                f"{self.backend_url}/conversations/{self.conversation_id}/reset",
+                headers=self._auth_headers(),
+            )
             response.raise_for_status()
             self.output("Conversation cleared.")
         elif name == "/models":
@@ -91,7 +96,8 @@ class MosaicCLI:
                 self.output("Usage: /model MODEL")
             else:
                 response = self.client.patch(
-                    f"{self.backend_url}/conversations/{self.conversation_id}", json={"model": argument}
+                    f"{self.backend_url}/conversations/{self.conversation_id}",
+                    json={"model": argument}, headers=self._auth_headers(),
                 )
                 response.raise_for_status()
                 self.model = response.json()["model"]

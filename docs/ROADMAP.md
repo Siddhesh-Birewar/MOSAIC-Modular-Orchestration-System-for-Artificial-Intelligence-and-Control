@@ -3,7 +3,7 @@
 1. Project foundation — 5% (complete): repository, backend skeleton, local runtime check, baseline docs.
 2. Intelligence engine — 12% (complete): model routing and conversation behavior.
 3. Safe tool execution — 20% (complete): validated tools, interactive CLI, deterministic filesystem boundary tests, and user-verified approval boundaries.
-4. Persistent memory, notes and learning — 30%: local SQLite-backed user data.
+4. Persistent memory, notes and learning — 30% (complete): local SQLite-backed user data.
 5. Desktop dashboard MVP — 40%: settings, permissions, plugins and chat UI.
 6. Natural voice assistant — 50%: local multilingual speech recognition and synthesis.
 7. Knowledge base and RAG — 60%: local document ingestion, OCR and retrieval.

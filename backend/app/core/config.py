@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 import os
 
+from app.database import default_database_path
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -15,6 +17,7 @@ class Settings:
     keep_alive: str = "5m"
     system_prompt: str = ""
     api_token: str = ""
+    database_path: str = ":memory:"
     allowed_roots: tuple[str, ...] = ()
     allowed_applications: tuple[str, ...] = (
         "Visual Studio Code", "Finder", "Calculator", "Notes", "Safari", "Google Chrome"
@@ -59,6 +62,7 @@ class Settings:
             keep_alive=os.getenv("MOSAIC_KEEP_ALIVE", "5m"),
             system_prompt=os.getenv("MOSAIC_SYSTEM_PROMPT", ""),
             api_token=os.getenv("MOSAIC_API_TOKEN", ""),
+            database_path=os.getenv("MOSAIC_DB_PATH", "").strip() or str(default_database_path()),
             allowed_roots=allowed_roots,
             allowed_applications=allowed_applications,
             audit_capacity=int(os.getenv("MOSAIC_AUDIT_CAPACITY", "500")),

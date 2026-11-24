@@ -2,13 +2,18 @@
 
 from contextlib import asynccontextmanager
 import asyncio
-from fastapi import FastAPI
+import sqlite3
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 from app.api.health import router as health_router
 from app.api.intelligence import router as intelligence_router
+from app.api.personal_data import router as personal_data_router
 from app.api.tools import router as tools_router
 from app.core.config import Settings
 from app.core.logging import configure_logging
+from app.database import Database
 from app.conversations import ConversationStore
 from app.models.ollama_client import OllamaClient
 from app.security.approvals import ApprovalManager
@@ -30,7 +35,8 @@ def create_app(settings: Settings | None = None, ollama: OllamaClient | None = N
     async def lifespan(app: FastAPI):
         app.state.ollama = ollama or OllamaClient(config.ollama_url, config.request_timeout)
         app.state.settings = config
-        app.state.conversations = ConversationStore()
+        app.state.database = Database(config.database_path)
+        app.state.conversations = ConversationStore(app.state.database)
         app.state.inference_lock = asyncio.Lock()
         app.state.file_access = FileAccess(config.allowed_roots)
         app.state.permission_manager = PermissionManager(
@@ -51,12 +57,26 @@ def create_app(settings: Settings | None = None, ollama: OllamaClient | None = N
             app.state.approvals,
             app.state.audit,
         )
-        yield
+        try:
+            yield
+        finally:
+            app.state.database.close()
 
-    app = FastAPI(title="MOSAIC API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="MOSAIC API", version="0.4.0", lifespan=lifespan)
+    @app.exception_handler(sqlite3.IntegrityError)
+    async def integrity_error(_request: Request, _exc: sqlite3.IntegrityError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": "Record conflicts with stored data"})
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        # Default validation responses echo submitted personal content.
+        errors = [{"loc": error["loc"], "type": error["type"]} for error in exc.errors()]
+        return JSONResponse(status_code=422, content={"detail": errors})
+
     app.include_router(health_router)
     app.include_router(intelligence_router)
     app.include_router(tools_router)
+    app.include_router(personal_data_router)
     return app
 
 
