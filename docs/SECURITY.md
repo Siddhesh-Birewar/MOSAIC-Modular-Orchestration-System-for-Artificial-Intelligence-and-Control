@@ -17,3 +17,5 @@
 - Protect local data with least-privilege file access; document encryption and backup choices before persisting sensitive data.
 - Phase 4's SQLite database contains personal conversations, notes, learning records, and curated memories. It defaults outside the repository, uses restrictive permissions where supported, and never stores API tokens. Backups must receive the same protection; stop the application or use SQLite's backup API for consistent copies. Database encryption at rest is not currently provided.
 - Conversation, chat, notes, learning, and memory endpoints require the configured bearer token. Memories are created only through explicit user-facing API requests; retrieval is bounded and labeled untrusted context. Conversation logs are not automatically promoted into memory.
+
+- Phase 4 closeout verified authentication, restart persistence, curated memory recall, learning integrity, and safe reset behavior. Transport/access URL logging is disabled and validation responses omit submitted input. SQLite integrity conflicts return a generic 409 response. The API/package release version is 0.4.0.

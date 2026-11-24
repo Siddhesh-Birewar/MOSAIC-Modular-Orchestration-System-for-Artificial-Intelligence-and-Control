@@ -2,7 +2,10 @@
 
 from contextlib import asynccontextmanager
 import asyncio
-from fastapi import FastAPI
+import sqlite3
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 from app.api.health import router as health_router
 from app.api.intelligence import router as intelligence_router
@@ -59,7 +62,17 @@ def create_app(settings: Settings | None = None, ollama: OllamaClient | None = N
         finally:
             app.state.database.close()
 
-    app = FastAPI(title="MOSAIC API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="MOSAIC API", version="0.4.0", lifespan=lifespan)
+    @app.exception_handler(sqlite3.IntegrityError)
+    async def integrity_error(_request: Request, _exc: sqlite3.IntegrityError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": "Record conflicts with stored data"})
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        # Default validation responses echo submitted personal content.
+        errors = [{"loc": error["loc"], "type": error["type"]} for error in exc.errors()]
+        return JSONResponse(status_code=422, content={"detail": errors})
+
     app.include_router(health_router)
     app.include_router(intelligence_router)
     app.include_router(tools_router)

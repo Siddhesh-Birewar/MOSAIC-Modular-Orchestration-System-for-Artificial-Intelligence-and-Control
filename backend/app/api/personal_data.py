@@ -198,6 +198,8 @@ async def get_topic(topic_id: str, request: Request):
 @router.patch("/learning/topics/{topic_id}")
 async def update_topic(topic_id: str, body: TopicPatch, request: Request):
     updates = body.model_dump(exclude_unset=True)
+    if any(updates.get(key) is None for key in ("name", "status") if key in updates):
+        raise HTTPException(status_code=422, detail="Name and status cannot be null")
     if not updates:
         raise HTTPException(status_code=422, detail="At least one topic field is required")
     if "revision_date" in updates and updates["revision_date"] is not None:

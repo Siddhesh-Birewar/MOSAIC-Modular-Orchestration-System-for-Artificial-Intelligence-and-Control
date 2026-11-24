@@ -22,3 +22,7 @@ def configure_logging(level: str = "INFO") -> None:
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(level)
+
+    # Transport/access records include URLs, which may contain personal search terms.
+    for name in ("httpx", "httpcore", "uvicorn.access"):
+        logging.getLogger(name).disabled = True

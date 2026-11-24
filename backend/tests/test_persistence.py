@@ -177,3 +177,66 @@ def test_aborted_stream_does_not_persist_a_partial_turn(tmp_path):
         })
         assert "event: error" in response.text
         assert client.get(f"/conversations/{conversation['id']}", headers=HEADERS).json()["messages"] == []
+
+
+def test_private_search_and_validation_content_are_not_exposed_in_logs(tmp_path, capsys):
+    with TestClient(make_app(tmp_path / "mosaic.sqlite3")) as client:
+        marker = "private-search-marker"
+        client.get("/notes", headers=HEADERS, params={"q": marker})
+        response = client.post("/notes", headers=HEADERS, json={"title": marker, "content": ""})
+        assert response.status_code == 422
+        assert marker not in response.text
+    assert marker not in capsys.readouterr().err
+
+
+def test_learning_update_conflicts_and_null_fields_are_sanitized(tmp_path):
+    with TestClient(make_app(tmp_path / "mosaic.sqlite3")) as client:
+        first = client.post("/learning/subjects", headers=HEADERS, json={"name": "First"}).json()
+        second = client.post("/learning/subjects", headers=HEADERS, json={"name": "Second"}).json()
+        response = client.put(f"/learning/subjects/{second['id']}", headers=HEADERS, json={"name": "First"})
+        assert response.status_code == 409
+        assert "UNIQUE" not in response.text
+        topic = client.post(f"/learning/subjects/{first['id']}/topics", headers=HEADERS, json={"name": "Topic"}).json()
+        for field in ("name", "status"):
+            assert client.patch(f"/learning/topics/{topic['id']}", headers=HEADERS, json={field: None}).status_code == 422
+        assert client.get(f"/learning/topics/{topic['id']}", headers=HEADERS).json()["name"] == "Topic"
+
+
+def test_reset_waits_for_inflight_turn_and_queued_chat_reads_latest_context(tmp_path):
+    import asyncio
+    from starlette.requests import Request
+    from app.api.intelligence import chat, reset_conversation
+    from app.schemas import ChatRequest
+
+    class ControlledOllama(Ollama):
+        def __init__(self):
+            self.entered = asyncio.Event()
+            self.resume = asyncio.Event()
+            self.contexts = []
+
+        async def chat(self, model, messages, keep_alive="5m"):
+            self.contexts.append(messages)
+            if len(self.contexts) == 1:
+                self.entered.set()
+                await self.resume.wait()
+            return "answer", {}
+
+    async def check():
+        ollama = ControlledOllama()
+        app = make_app(tmp_path / "mosaic.sqlite3", ollama)
+        async with app.router.lifespan_context(app):
+            request = Request({"type": "http", "app": app, "headers": []})
+            conversation = app.state.conversations.create("gpt-oss:20b")
+            first = asyncio.create_task(chat(ChatRequest(conversation_id=conversation.id, message="first"), request))
+            await ollama.entered.wait()
+            second = asyncio.create_task(chat(ChatRequest(conversation_id=conversation.id, message="second"), request))
+            await asyncio.sleep(0)
+            reset = asyncio.create_task(reset_conversation(conversation.id, request))
+            await asyncio.sleep(0)
+            assert not reset.done()
+            ollama.resume.set()
+            await asyncio.gather(first, second, reset)
+            assert any(item["content"] == "first" for item in ollama.contexts[1])
+            assert app.state.conversations.get(conversation.id).messages == []
+
+    asyncio.run(check())

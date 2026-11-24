@@ -4,7 +4,7 @@ Modular Orchestration System for Artificial Intelligence and Control.
 
 A local-first personal AI assistant.
 
-Development status: Phase 4 — persistent memory, notes and learning in progress.
+Development status: Phase 4 complete — persistent memory, notes and learning (v0.4.0; roadmap 30%).
 
 ## Backend quick start
 
@@ -46,6 +46,14 @@ personal conversation and note content, so protect backups like the original. Ve
 restart persistence locally by creating a conversation or note, stopping the backend,
 restarting it with the same `MOSAIC_DB_PATH`, and fetching that record using the bearer
 token. Do not use real personal content in automated tests.
+
+Manual verification on macOS confirmed bearer authentication (unauthenticated personal
+requests return 401), note creation (201), stable note UUID/content/timestamps after restart,
+ordered conversation history after restart, curated memory recall in a fresh conversation,
+and learning topic status/progress persistence. Invalid subject IDs return 404.
+The full suite passes 53 tests. SQLite remains unencrypted at rest; memory retrieval uses
+keywords only. Run one backend worker: inference and conversation mutations share a
+process-local lock. Access logging is suppressed to keep personal URL search terms out of logs.
 
 ## Interactive CLI and safe tools
 

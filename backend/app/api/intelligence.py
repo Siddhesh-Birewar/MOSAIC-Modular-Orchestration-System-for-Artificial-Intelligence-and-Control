@@ -114,7 +114,8 @@ async def get_conversation(conversation_id: str, request: Request) -> dict[str, 
 @router.post("/conversations/{conversation_id}/reset", dependencies=[Depends(require_local_token)])
 async def reset_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
     try:
-        return _conversation_data(request.app.state.conversations.reset(conversation_id))
+        async with request.app.state.inference_lock:
+            return _conversation_data(request.app.state.conversations.reset(conversation_id))
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
 
@@ -125,7 +126,8 @@ async def set_conversation_model(
 ) -> dict[str, Any]:
     await _validate_model(request, body.model)
     try:
-        return _conversation_data(request.app.state.conversations.set_model(conversation_id, body.model))
+        async with request.app.state.inference_lock:
+            return _conversation_data(request.app.state.conversations.set_model(conversation_id, body.model))
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
 
@@ -141,7 +143,7 @@ async def _resolve_chat(body: ChatRequest, request: Request) -> Conversation:
     if conversation is None:
         conversation = store.create(model)
     elif model != conversation.model:
-        conversation = store.set_model(conversation.id, model)
+        conversation.model = model
     return conversation
 
 
@@ -155,7 +157,8 @@ async def list_conversations(request: Request, limit: int = 50, offset: int = 0)
 @router.delete("/conversations/{conversation_id}", status_code=204, dependencies=[Depends(require_local_token)])
 async def delete_conversation(conversation_id: str, request: Request) -> None:
     try:
-        request.app.state.conversations.delete(conversation_id)
+        async with request.app.state.inference_lock:
+            request.app.state.conversations.delete(conversation_id)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
 
@@ -167,17 +170,20 @@ async def chat(body: ChatRequest, request: Request) -> ChatResponse:
     started = time.monotonic()
     try:
         async with request.app.state.inference_lock:
+            conversation = request.app.state.conversations.set_model(conversation.id, conversation.model)
             model = conversation.model
             messages = _messages(request, conversation, body.message)
             await _prepare_model(ollama, model, request.app.state.settings.allowed_models)
             answer, raw_metrics = await ollama.chat(
                 model, messages, request.app.state.settings.keep_alive
             )
+            request.app.state.conversations.append_turn(conversation, body.message, answer)
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found") from exc
     except OllamaError as exc:
         raise _translate_error(exc) from exc
     metrics = InferenceMetrics.from_ollama(raw_metrics)
     metrics.total_duration_seconds = round(time.monotonic() - started, 6)
-    request.app.state.conversations.append_turn(conversation, body.message, answer)
     logger.info("Chat completed")
     return ChatResponse(
         conversation_id=conversation.id,
@@ -208,7 +214,8 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
         yield _sse("start", {"conversation_id": conversation.id, "model": model})
         try:
             async with request.app.state.inference_lock:
-                messages = _messages(request, conversation, body.message, model)
+                current = request.app.state.conversations.set_model(conversation.id, model)
+                messages = _messages(request, current, body.message, model)
                 await _prepare_model(ollama, model, request.app.state.settings.allowed_models)
                 definitions = (
                     [tool.ollama_definition() for tool in request.app.state.tool_registry.list()]
@@ -346,6 +353,8 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                     "tool_calls": tool_calls_used,
                 })
                 logger.info("Streaming chat completed")
+        except ConversationNotFoundError:
+            yield _sse("error", {"detail": "Conversation not found"})
         except asyncio.CancelledError:
             logger.info("Streaming chat cancelled")
             raise
