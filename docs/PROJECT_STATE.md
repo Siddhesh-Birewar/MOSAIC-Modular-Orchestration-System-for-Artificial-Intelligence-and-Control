@@ -1,34 +1,27 @@
 # Project state
 
 ## Current phase
-Phase 2 — Intelligence engine: implementation complete. Phase 1 is closed.
+Phase 3 — Safe Tool Execution and Interactive CLI is complete. Phase 4 — Persistent Memory is next and has not started.
 
-## Completed tasks
-- Created `feature/project-foundation` and initial repository structure.
-- Added localhost FastAPI health, Ollama health, model discovery, and one-turn chat endpoints.
-- Added environment configuration, content-free JSON logs, and mocked backend/client tests.
-- Verified local Ollama health and model discovery through the backend. Installed models: `gpt-oss:20b`, `nomic-embed-text:latest`, `glm-ocr:latest`, and `qwen3:8b`.
-- User manually verified a successful live `POST /chat` request using `gpt-oss:20b`.
-- Added a configurable MOSAIC identity prompt, bounded multi-turn conversations, conversation reset/model selection, and independent UUID contexts.
-- Added Ollama SSE streaming with private reasoning fields excluded, interruption/cancellation cleanup, metrics, and sanitized errors.
-- Added loaded-model status, availability checks, safe unload/switch behavior, and an opt-in benchmark script.
+## Phase 3 implementation
+- Registered read-only system monitoring, explicitly rooted filesystem reads, and allowlisted macOS application launching.
+- Tool calls use strict schemas, default-deny permission checks, bounded execution/results, authenticated local endpoints, one-time argument-bound approvals, and content-free bounded audit records.
+- Ollama structured calls are collected across streamed chunks and passed through the same validated executor. Model prose is never executable.
+- The interactive CLI supports streaming, conversations, approval prompts, and the documented slash commands.
 
-## Pending tasks
-- None for the requested Phase 2 scope. Phase 3 tool execution is not started.
+## Phase 3 verification
+- User reports successful manual verification of authenticated tool calls, battery and RAM monitoring, authorized file reads, app launch after explicit approval, rejection handling, and denial of a non-allowlisted application.
+- Deterministic backend tests verify unauthenticated/out-of-root reads, `..` traversal, symlink escapes, sensitive paths, and bounded file access; these do not depend on LLM behavior.
+- Streaming regression tests verify tool calls arriving before the final Ollama chunk are retained and repeated final snapshots do not duplicate a call.
+- Live localhost checks previously passed for seven read-only system tools and a streamed CLI chat using local Ollama.
+- Automated suite: `backend/.venv/bin/python -m pytest -q` — 42 passed, with one Starlette/httpx deprecation warning.
+- Compile check: `backend/.venv/bin/python -m compileall -q backend/app scripts` — passed. `git diff --check` — passed.
 
-## Known issues
-- Conversations are in-memory and are discarded when the backend restarts; SQLite persistence is Phase 4.
-- Inference and model changes are serialized within one backend process. Multiple backend workers would need shared coordination.
-- One installed-model live inference was run with `gpt-oss:20b`; the opt-in comparison benchmark was not run.
-- An earlier Ollama HTTP 500 occurred, but its cause was not identified.
-- Frontend, voice, and tool execution are not implemented.
+## Security and platform notes
+- Filesystem access remains default-deny. Configure only narrow roots in ignored `.env`; no writes or deletes are registered.
+- On macOS, `/tmp` commonly resolves to `/private/tmp`. A `/tmp/...` spelling may be rejected if the allowed root is configured as `/private/tmp/...`; configure and request paths using their canonical spelling. Do not weaken canonical-path or no-follow checks.
+- Application launch remains fixed to installed allowlisted apps and requires a separate user approval each time.
+- Conversations and audit history are in memory and are discarded when the backend restarts.
 
-## Test results
-`cd backend && .venv/bin/python -m pytest`: 22 passed (one Starlette/httpx deprecation warning).
-`python -m compileall -q app ../scripts/benchmark_models.py`: passed.
-Live Uvicorn check on `127.0.0.1:8766`: `/health` 200, `/health/ollama` 200, `POST /chat` 200 using `gpt-oss:20b`. Response: `MOSAIC phase two ready`. Metrics: load 7.62 s, total 10.55 s, input 257 tokens, output 57 tokens, 26.38 tokens/s. Benchmark not run.
-
-## Exact next development steps
-1. Start the API using the README instructions.
-2. Verify `POST /conversations`, multi-turn `POST /chat`, and `POST /chat/stream` manually as needed.
-3. Begin Phase 3 only when tool execution is requested and its permission boundary is designed.
+## Phase 4
+Create `feature/phase-4-persistent-memory` from the synchronized `main` branch after Phase 3 is merged and tagged. Do not implement Phase 4 as part of this closeout.

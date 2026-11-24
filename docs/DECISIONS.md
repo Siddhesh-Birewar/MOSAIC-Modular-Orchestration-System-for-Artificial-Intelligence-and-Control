@@ -11,3 +11,7 @@
 - **SSE plus Ollama stream adapter:** forwards answer content progressively while omitting model reasoning fields; cancellation closes the HTTP stream.
 - **Serialized model activation:** inference and unload operations share a process lock, and another loaded model is unloaded before switching to limit unified-memory pressure.
 - **Opt-in benchmark:** the script reports timing and token metrics only; it is never invoked by startup or tests.
+- **Bearer token for local actions:** authenticated action endpoints avoid treating loopback binding as authorization. Tools are omitted from model requests unless a valid CLI token is present; the token never enters model context.
+- **No filesystem roots by default:** explicit narrow roots are required. Descriptor-based no-follow opens, sensitive-name denial, regular-file checks, and size limits provide defense in depth.
+- **Application approval every time:** launches remain fixed to known application paths and cannot run until a short-lived, one-use, argument-bound user approval is consumed.
+- **Bounded in-memory audit:** audit events contain outcome metadata only and use a fixed-size ring; durable audit storage requires a later privacy and retention decision.

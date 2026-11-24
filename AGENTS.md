@@ -7,6 +7,9 @@
 - Do not download large models without explicit user approval.
 - Preserve existing work, add focused tests for behavior, and update `docs/PROJECT_STATE.md` when implementation status changes.
 - Use type hints, clear interfaces, and focused changes. Stop at the requested roadmap phase.
+- Expose operating-system capabilities only through registered tools and `ToolExecutor`. Never pass arbitrary model text to a shell or executable.
+- Keep filesystem authorization empty unless `MOSAIC_ALLOWED_ROOTS` explicitly lists narrow roots. Never grant the home directory or MOSAIC repository by default.
+- Keep `MOSAIC_API_TOKEN` out of prompts, responses, logs, audit records, and Git. Application launches require a fresh user approval for each request.
 
 ## Mandatory Git and GitHub milestone workflow
 
