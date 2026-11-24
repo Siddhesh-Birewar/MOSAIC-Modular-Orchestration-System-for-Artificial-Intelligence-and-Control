@@ -1,7 +1,7 @@
 # Roadmap
 
-1. Project foundation — 5%: repository, backend skeleton, local runtime check, baseline docs.
-2. Intelligence engine — 12%: model routing and conversation behavior.
+1. Project foundation — 5% (complete): repository, backend skeleton, local runtime check, baseline docs.
+2. Intelligence engine — 12% (complete): model routing and conversation behavior.
 3. Safe tool execution — 20%: validated tools with permission checks.
 4. Persistent memory, notes and learning — 30%: local SQLite-backed user data.
 5. Desktop dashboard MVP — 40%: settings, permissions, plugins and chat UI.

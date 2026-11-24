@@ -23,5 +23,12 @@ cd backend
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-The API exposes `GET /health`, `GET /health/ollama`, `GET /models`, and `POST /chat`.
-Run checks from the `backend/` directory with `pytest`.
+The API exposes health and model discovery endpoints, in-memory conversation management,
+`POST /chat`, and `POST /chat/stream` (SSE). See `docs/ARCHITECTURE.md` for route and
+configuration details. Conversations are lost when the backend restarts; SQLite belongs
+to Phase 4.
+
+Run checks from the `backend/` directory with `pytest`. To deliberately compare the
+installed models, start the API and run `python scripts/benchmark_models.py` from the
+repository root. This makes ten model inferences by default and is not run automatically;
+use `--model qwen3:8b` to limit the run.

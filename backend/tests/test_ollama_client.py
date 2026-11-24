@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -6,6 +7,8 @@ import pytest
 from app.models.ollama_client import (
     OllamaClient,
     OllamaConnectionError,
+    OllamaInferenceError,
+    OllamaModelNotFoundError,
     OllamaResponseError,
     OllamaTimeoutError,
 )
@@ -14,7 +17,7 @@ from app.models.ollama_client import (
 def test_list_models_and_chat_with_mocked_responses(monkeypatch):
     responses = [
         httpx.Response(200, json={"models": [{"name": "gpt-oss:20b"}]}),
-        httpx.Response(200, json={"message": {"content": "Hello"}}),
+        httpx.Response(200, json={"message": {"content": "Hello"}, "eval_count": 1}),
     ]
 
     async def handle(self, method, url, **kwargs):
@@ -24,7 +27,8 @@ def test_list_models_and_chat_with_mocked_responses(monkeypatch):
     client = OllamaClient("http://127.0.0.1:11434")
     async def check():
         assert (await client.list_models())[0]["name"] == "gpt-oss:20b"
-        assert await client.chat("gpt-oss:20b", "Hi") == "Hello"
+        answer, metrics = await client.chat("gpt-oss:20b", [{"role": "user", "content": "Hi"}])
+        assert answer == "Hello" and metrics["eval_count"] == 1
 
     asyncio.run(check())
 
@@ -61,6 +65,132 @@ def test_malformed_response(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "request", malformed)
     async def check():
         with pytest.raises(OllamaResponseError):
+            await OllamaClient("http://127.0.0.1:11434").list_models()
+
+    asyncio.run(check())
+
+
+def test_model_status_unload_requests(monkeypatch):
+    requests = []
+
+    async def handle(self, method, url, **kwargs):
+        requests.append((method, url, kwargs))
+        payload = {"models": [{"name": "qwen3:8b"}]} if url.endswith("/api/ps") else {}
+        return httpx.Response(200, json=payload, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", handle)
+
+    async def check():
+        client = OllamaClient("http://localhost:11434")
+        assert (await client.running_models())[0]["name"] == "qwen3:8b"
+        await client.unload_model("qwen3:8b")
+        assert requests[-1][1].endswith("/api/generate")
+        assert requests[-1][2]["json"]["keep_alive"] == 0
+        count = len(requests)
+        await client.unload_model("gpt-oss:20b")
+        assert len(requests) == count + 1  # status check only; absent model is never loaded to unload
+
+    asyncio.run(check())
+
+
+def test_stream_chunks_separate_reasoning_and_close_on_cancel(monkeypatch):
+    state = {"closed": False}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            yield json.dumps({"message": {"content": "part", "thinking": "private reasoning"}, "done": False})
+
+    class StreamContext:
+        async def __aenter__(self):
+            return Response()
+
+        async def __aexit__(self, *args):
+            state["closed"] = True
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def stream(self, *args, **kwargs):
+            return StreamContext()
+
+    monkeypatch.setattr("app.models.ollama_client.httpx.AsyncClient", FakeAsyncClient)
+
+    async def check():
+        stream = OllamaClient("http://127.0.0.1:11434").stream_chat(
+            "gpt-oss:20b", [{"role": "user", "content": "hello"}]
+        )
+        chunk = await anext(stream)
+        assert chunk.content == "part"
+        assert "private reasoning" not in chunk.content
+        await stream.aclose()
+        assert state["closed"] is True
+
+    asyncio.run(check())
+
+
+def test_incomplete_stream_is_reported(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            yield json.dumps({"message": {"content": "partial"}, "done": False})
+
+    class StreamContext:
+        async def __aenter__(self):
+            return Response()
+
+        async def __aexit__(self, *args):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def stream(self, *args, **kwargs):
+            return StreamContext()
+
+    monkeypatch.setattr("app.models.ollama_client.httpx.AsyncClient", FakeAsyncClient)
+
+    async def check():
+        stream = OllamaClient("http://127.0.0.1:11434").stream_chat(
+            "gpt-oss:20b", [{"role": "user", "content": "hello"}]
+        )
+        assert (await anext(stream)).content == "partial"
+        with pytest.raises(OllamaResponseError, match="ended before completion"):
+            await anext(stream)
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize(
+    ("status", "exception"),
+    [(404, OllamaModelNotFoundError), (500, OllamaInferenceError)],
+)
+def test_http_failures_are_classified(monkeypatch, status, exception):
+    async def failed(self, method, url, **kwargs):
+        return httpx.Response(status, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", failed)
+
+    async def check():
+        with pytest.raises(exception):
             await OllamaClient("http://127.0.0.1:11434").list_models()
 
     asyncio.run(check())

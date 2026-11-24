@@ -1,5 +1,7 @@
 """Health and Ollama discovery endpoints."""
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Request
 
 from app.models.ollama_client import OllamaError
@@ -26,8 +28,13 @@ async def ollama_health(request: Request) -> dict[str, str]:
 
 
 @router.get("/models")
-async def models(request: Request) -> dict[str, list[dict]]:
+async def models(request: Request) -> dict[str, list[dict[str, Any]]]:
     try:
-        return {"models": await service(request).list_models()}
+        installed = await service(request).list_models()
+        running = await service(request).running_models()
+        running_names = {item.get("name") or item.get("model") for item in running}
+        for item in installed:
+            item["loaded"] = (item.get("name") or item.get("model")) in running_names
+        return {"models": installed}
     except OllamaError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
