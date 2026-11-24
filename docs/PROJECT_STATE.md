@@ -1,34 +1,42 @@
 # Project state
 
 ## Current phase
-Phase 2 — Intelligence engine: implementation complete. Phase 1 is closed.
+Phase 3 — safe tool execution and interactive CLI is implemented and under verification. Phase 3 is **not complete**. Phase 1 and Phase 2 are complete.
 
-## Completed tasks
-- Created `feature/project-foundation` and initial repository structure.
-- Added localhost FastAPI health, Ollama health, model discovery, and one-turn chat endpoints.
-- Added environment configuration, content-free JSON logs, and mocked backend/client tests.
-- Verified local Ollama health and model discovery through the backend. Installed models: `gpt-oss:20b`, `nomic-embed-text:latest`, `glm-ocr:latest`, and `qwen3:8b`.
-- User manually verified a successful live `POST /chat` request using `gpt-oss:20b`.
-- Added a configurable MOSAIC identity prompt, bounded multi-turn conversations, conversation reset/model selection, and independent UUID contexts.
-- Added Ollama SSE streaming with private reasoning fields excluded, interruption/cancellation cleanup, metrics, and sanitized errors.
-- Added loaded-model status, availability checks, safe unload/switch behavior, and an opt-in benchmark script.
+## Completed phases
+- Phase 1: local FastAPI foundation, configuration, health/model endpoints, and initial tests. User manually verified a live chat request.
+- Phase 2: bounded conversations, model selection, streaming, metrics, safe model management, and benchmark utility. Automated and live checks passed.
 
-## Pending tasks
-- None for the requested Phase 2 scope. Phase 3 tool execution is not started.
+## Phase 3 implementation status
+- Added registered system, filesystem, and application tools, typed permission policy, authenticated tool/approval/audit APIs, one-time argument-bound approvals, and bounded content-free audit history.
+- Filesystem access defaults to no roots. Configured roots use canonical and descriptor checks, reject symlink traversal and sensitive paths, and enforce file/result bounds. There are no filesystem write or delete tools.
+- Application launch is allowlisted and requires explicit approval for every request. No application was launched during development verification.
+- Added structured Ollama tool-call handling with validated schemas, authenticated tool-enabled streaming, bounded tool orchestration, and untrusted-result handling.
+- Added `scripts/chat.py` with conversation management, streaming, approval prompts, and the documented CLI commands.
+- Updated `AGENTS.md`, README, architecture, security, decisions, roadmap, and changelog for the new phase and permanent Git/GitHub milestone workflow.
 
-## Known issues
-- Conversations are in-memory and are discarded when the backend restarts; SQLite persistence is Phase 4.
-- Inference and model changes are serialized within one backend process. Multiple backend workers would need shared coordination.
-- One installed-model live inference was run with `gpt-oss:20b`; the opt-in comparison benchmark was not run.
-- An earlier Ollama HTTP 500 occurred, but its cause was not identified.
-- Frontend, voice, and tool execution are not implemented.
+## Verification completed
+- Automated tests: `cd backend && .venv/bin/python -m pytest -q` — 38 passed; one Starlette/httpx deprecation warning.
+- `backend/.venv/bin/python -m compileall -q backend/app scripts` — passed.
+- `git diff --check` — passed at the last test run; rerun after documentation edits.
+- Live localhost API check: seven read-only tools (CPU, memory, battery, disk, macOS version, uptime, and Ollama models) returned HTTP 200. No personal files or applications were accessed/launched.
+- Live CLI check through the backend virtual environment completed successfully and streamed a response from local `gpt-oss:20b`. The first attempt with system Python lacked `httpx`; rerunning with the project environment passed.
 
-## Test results
-`cd backend && .venv/bin/python -m pytest`: 22 passed (one Starlette/httpx deprecation warning).
-`python -m compileall -q app ../scripts/benchmark_models.py`: passed.
-Live Uvicorn check on `127.0.0.1:8766`: `/health` 200, `/health/ollama` 200, `POST /chat` 200 using `gpt-oss:20b`. Response: `MOSAIC phase two ready`. Metrics: load 7.62 s, total 10.55 s, input 257 tokens, output 57 tokens, 26.38 tokens/s. Benchmark not run.
+## Manual verification still required
+Before Phase 3 can be marked complete, the user must perform and report these checks:
+1. Set a strong `MOSAIC_API_TOKEN` (at least 32 characters) and a narrow temporary `MOSAIC_ALLOWED_ROOTS` directory in local `.env`; keep both out of Git.
+2. Verify the CLI/model can read a harmless file inside that root and that a path outside the root is denied.
+3. Choose an installed app from `MOSAIC_ALLOWED_APPLICATIONS`; request its launch through MOSAIC and reject the first approval, confirming it does not launch.
+4. Make a separate request and approve once, confirming only the selected allowlisted app launches.
+5. Report the results so acceptance can be reviewed. Until then, keep this as a work-in-progress feature branch; do not merge or create a Phase 3 milestone tag.
 
-## Exact next development steps
-1. Start the API using the README instructions.
-2. Verify `POST /conversations`, multi-turn `POST /chat`, and `POST /chat/stream` manually as needed.
-3. Begin Phase 3 only when tool execution is requested and its permission boundary is designed.
+## Known limitations
+- Conversations and audit events are in memory and disappear when the backend restarts; persistent storage is a later phase.
+- Inference and model changes are serialized within one backend process.
+- `psutil` may report unavailable values when the operating system denies access; that should be surfaced as unavailable rather than treated as an authorization bypass.
+- Manual filesystem boundary and application approval checks above remain outstanding.
+
+## Branch and next step
+- Phase 3 branch: `feature/phase-3-safe-tools`.
+- Push the reviewed implementation as work in progress and open a draft PR. Do not merge or tag until the manual checks above are confirmed and all acceptance criteria pass.
+- After Phase 3 closeout, create a new feature branch before starting Phase 4.

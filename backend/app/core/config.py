@@ -14,6 +14,16 @@ class Settings:
     context_limit: int = 20
     keep_alive: str = "5m"
     system_prompt: str = ""
+    api_token: str = ""
+    allowed_roots: tuple[str, ...] = ()
+    allowed_applications: tuple[str, ...] = (
+        "Visual Studio Code", "Finder", "Calculator", "Notes", "Safari", "Google Chrome"
+    )
+    audit_capacity: int = 500
+    max_tool_calls: int = 3
+    max_tool_seconds: float = 30.0
+    max_tool_iterations: int = 3
+    max_orchestration_seconds: float = 180.0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -28,6 +38,17 @@ class Settings:
             for model in os.getenv("MOSAIC_ALLOWED_MODELS", "gpt-oss:20b,qwen3:8b").split(",")
             if model.strip()
         )
+        allowed_roots = tuple(
+            root.strip() for root in os.getenv("MOSAIC_ALLOWED_ROOTS", "").split(os.pathsep) if root.strip()
+        )
+        allowed_applications = tuple(
+            name.strip()
+            for name in os.getenv(
+                "MOSAIC_ALLOWED_APPLICATIONS",
+                "Visual Studio Code,Finder,Calculator,Notes,Safari,Google Chrome",
+            ).split(",")
+            if name.strip()
+        )
         return cls(
             ollama_url=os.getenv("MOSAIC_OLLAMA_URL", cls.ollama_url).rstrip("/"),
             primary_model=os.getenv("MOSAIC_PRIMARY_MODEL", cls.primary_model),
@@ -37,4 +58,12 @@ class Settings:
             context_limit=context_limit,
             keep_alive=os.getenv("MOSAIC_KEEP_ALIVE", "5m"),
             system_prompt=os.getenv("MOSAIC_SYSTEM_PROMPT", ""),
+            api_token=os.getenv("MOSAIC_API_TOKEN", ""),
+            allowed_roots=allowed_roots,
+            allowed_applications=allowed_applications,
+            audit_capacity=int(os.getenv("MOSAIC_AUDIT_CAPACITY", "500")),
+            max_tool_calls=int(os.getenv("MOSAIC_MAX_TOOL_CALLS", "3")),
+            max_tool_seconds=float(os.getenv("MOSAIC_MAX_TOOL_SECONDS", "30")),
+            max_tool_iterations=int(os.getenv("MOSAIC_MAX_TOOL_ITERATIONS", "3")),
+            max_orchestration_seconds=float(os.getenv("MOSAIC_MAX_ORCHESTRATION_SECONDS", "180")),
         )

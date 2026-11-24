@@ -179,6 +179,62 @@ def test_incomplete_stream_is_reported(monkeypatch):
     asyncio.run(check())
 
 
+def test_stream_parses_only_structured_tool_calls_and_strips_reasoning(monkeypatch):
+    captured = {}
+    event = {
+        "message": {
+            "role": "assistant",
+            "content": "",
+            "thinking": "internal reasoning must not be returned",
+            "tool_calls": [{"function": {"name": "system_cpu_usage", "arguments": {}}}],
+        },
+        "done": True,
+        "eval_count": 1,
+    }
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            yield json.dumps(event)
+
+    class StreamContext:
+        async def __aenter__(self):
+            return Response()
+
+        async def __aexit__(self, *args):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def stream(self, method, url, **kwargs):
+            captured.update(kwargs["json"])
+            return StreamContext()
+
+    monkeypatch.setattr("app.models.ollama_client.httpx.AsyncClient", FakeAsyncClient)
+
+    async def check():
+        stream = OllamaClient("http://127.0.0.1:11434").stream_chat(
+            "gpt-oss:20b", [{"role": "user", "content": "cpu"}], tools=[{"type": "function"}]
+        )
+        result = await anext(stream)
+        assert result.done and result.tool_calls[0]["function"]["name"] == "system_cpu_usage"
+        assert result.assistant_message is not None
+        assert "thinking" not in result.assistant_message
+        assert captured["tools"] == [{"type": "function"}]
+
+    asyncio.run(check())
+
+
 @pytest.mark.parametrize(
     ("status", "exception"),
     [(404, OllamaModelNotFoundError), (500, OllamaInferenceError)],

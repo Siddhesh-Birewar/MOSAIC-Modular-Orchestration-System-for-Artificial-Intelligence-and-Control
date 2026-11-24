@@ -37,6 +37,8 @@ class OllamaInferenceError(OllamaError):
 class StreamEvent:
     content: str = ""
     metrics: dict[str, Any] | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    assistant_message: dict[str, Any] | None = None
     done: bool = False
 
 
@@ -93,14 +95,21 @@ class OllamaClient:
         })
 
     async def chat(
-        self, model: str, messages: list[dict[str, str]], keep_alive: str = "5m"
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        keep_alive: str = "5m",
+        tools: list[dict[str, Any]] | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        payload = await self._request("POST", "/api/chat", json={
+        body: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stream": False,
             "keep_alive": keep_alive,
-        })
+        }
+        if tools:
+            body["tools"] = tools
+        payload = await self._request("POST", "/api/chat", json=body)
         response = payload.get("message")
         content = response.get("content") if isinstance(response, dict) else None
         if not isinstance(content, str):
@@ -108,17 +117,24 @@ class OllamaClient:
         return content, payload
 
     async def stream_chat(
-        self, model: str, messages: list[dict[str, str]], keep_alive: str = "5m"
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        keep_alive: str = "5m",
+        tools: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         started = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream("POST", f"{self.base_url}/api/chat", json={
+                body: dict[str, Any] = {
                     "model": model,
                     "messages": messages,
                     "stream": True,
                     "keep_alive": keep_alive,
-                }) as response:
+                }
+                if tools:
+                    body["tools"] = tools
+                async with client.stream("POST", f"{self.base_url}/api/chat", json=body) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
                         if not line:
@@ -137,7 +153,22 @@ class OllamaClient:
                         if content and not isinstance(content, str):
                             raise OllamaResponseError("Ollama returned malformed chat content")
                         done = payload.get("done") is True
-                        yield StreamEvent(content=content, metrics=payload if done else None, done=done)
+                        tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
+                        if tool_calls is not None and not isinstance(tool_calls, list):
+                            raise OllamaResponseError("Ollama returned malformed tool calls")
+                        assistant_message = None
+                        if done and isinstance(message, dict) and tool_calls:
+                            assistant_message = {
+                                key: value for key, value in message.items()
+                                if key not in ("thinking", "reasoning")
+                            }
+                        yield StreamEvent(
+                            content=content,
+                            metrics=payload if done else None,
+                            tool_calls=tool_calls if done else None,
+                            assistant_message=assistant_message,
+                            done=done,
+                        )
                         if done:
                             return
             raise OllamaResponseError("Ollama stream ended before completion")
