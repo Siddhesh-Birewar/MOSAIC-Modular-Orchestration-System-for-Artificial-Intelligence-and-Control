@@ -6,6 +6,15 @@ A local-first personal AI assistant.
 
 Development status: Phase 6 local voice intelligence in progress. Phase 5 dashboard/humanoid is deferred. Latest stable milestone: v0.4.0 (30%).
 
+## Learn the codebase
+
+The [learning documentation](docs/learning/README.md) provides a study roadmap,
+evidence-backed guides to Phases 1–4 and active Phase 6, source/function references,
+commands, troubleshooting, benchmark history, rebuilding exercises and educational
+content ideas. Historical facts and reconstructed explanations are labeled separately.
+These records are maintained during every future development phase and verified at
+milestone closeout. They do not change pending acceptance or release status.
+
 ## Backend quick start
 
 From the repository root, create an isolated environment and install the backend:

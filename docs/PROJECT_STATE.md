@@ -6,6 +6,12 @@ Phase 5 dashboard/humanoid is officially deferred; original numbering is retaine
 Phase 4 is complete at annotated `v0.4.0` / merge `fd37903`; the last verified cumulative
 roadmap milestone remains 30%. No Phase 5 work is removed or changed.
 
+## Learning documentation
+- Added [docs/learning](learning/README.md) on 2026-11-26: reconstructed Phase 1–4 guides and an active Phase 6 guide, each covering the 20 required learning topics with real source references, exercises and evidence labels.
+- Tagged project-state records and merged PRs support historical test counts/results; alternatives and within-commit build explanations are labeled reconstructed. Missing benchmarks remain explicitly unmeasured. Private verification content is omitted.
+- AGENTS.md now requires continuous learning-record updates and documentation verification during the existing milestone documentation step. All existing test/manual/security/merge/tag gates remain in force.
+- Documentation-update regression run: 116 passed, one optional real-model integration skipped, one existing Starlette/httpx warning. The earlier explicit real-model pass remains historical evidence, not a new run. Runtime behavior is unchanged; Phase 6 manual acceptance remains pending.
+
 ## Phase 6 neural upgrade — application acceptance pending
 - Continued from clean synchronized preview commit d8d3e46 on the same branch/PR #4; baseline 78 tests passed.
 - Verified existing isolated Python 3.12.16 neural environment (mlx-audio 0.6.8, mlx 0.32.5, misaki 0.9.4), Whisper executable/Base files and cached Kokoro assets. No dependencies reinstalled or weights downloaded. Actual cached tensor header is F32 despite the repository BF16 label; runtime dtype reporting is included.

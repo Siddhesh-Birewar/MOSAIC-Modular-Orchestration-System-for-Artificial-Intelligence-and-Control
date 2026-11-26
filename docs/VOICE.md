@@ -1,5 +1,10 @@
 # Phase 6 — Neural voice intelligence (draft)
 
+For a beginner-friendly implementation walkthrough, source/function map, rebuilding
+exercises and evidence labels, see the [Phase 6 learning guide](learning/phases/PHASE_06_VOICE.md).
+The shared [benchmark history](learning/BENCHMARK_HISTORY.md) separates owner-reported
+component results from implementation measurements and pending audible/sustained checks.
+
 Phase 5 dashboard/humanoid remains deferred; no frontend files are changed. Continue on
 `feature/phase-6-voice-intelligence` / draft PR #4. Stable milestone remains v0.4.0 (30%).
 Do not merge, create v0.6.0, or begin Phase 7 before user acceptance.

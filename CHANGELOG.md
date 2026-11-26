@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased — Phase 6 neural upgrade
+- Added `docs/learning/` with evidence-backed Phase 1–4 reconstruction, an active Phase 6 guide, study roadmap, journal, architecture/technology/command records, error and benchmark history, glossary, exercises and educational content ideas. Added permanent learning maintenance and verification requirements to AGENTS.md without changing milestone acceptance gates.
 - Added persistent offline MLX Kokoro worker using the existing isolated neural environment and cached assets, with warm-up, bounded IPC/queues/restarts, cancellation, retention, readiness/dtype/resource reporting and explicit native fallback.
 - Added spoken normalization, English/Hindi/Hinglish routing, bounded segmentation and ordered streaming synthesis/playback. Tool-enabled speech remains buffered until completed orchestration; failed actions receive deterministic noncompletion notices.
 - Added language/provider/speed/reasoning/tool-mode CLI controls, UUID-scoped cancellation, validated installed Ollama thinking levels and real-model benchmark tooling. Preserve original transcripts and typed approvals.
