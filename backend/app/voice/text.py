@@ -2,6 +2,7 @@
 
 import re
 import json
+from dataclasses import dataclass
 import unicodedata
 from typing import Literal
 
@@ -50,13 +51,20 @@ def normalize_speech(text: str) -> str:
     return ' '.join(text.split())
 
 
+@dataclass(frozen=True)
+class SpeechSegment:
+    text: str
+    language: str
+
+
 class Segmenter:
     """Incremental sentence parser. Keep fences, URLs, decimals and abbreviations intact."""
-    def __init__(self, limit: int = 160) -> None:
+    def __init__(self, limit: int = 160, language: str = "auto") -> None:
         self.buffer = ''
         self.limit = limit
+        self.language = language
 
-    def feed(self, text: str, final: bool = False) -> list[str]:
+    def feed_segments(self, text: str, final: bool = False) -> list[SpeechSegment]:
         self.buffer += text
         if len(self.buffer) > 20000:
             raise ValueError('Speech segment buffer exceeds limit')
@@ -87,7 +95,7 @@ class Segmenter:
                     tail = word[1].lower() if word else ''
                     abbreviation = tail.rstrip('.') in ABBREVIATIONS or bool(re.fullmatch(r'(?:[a-z]\.){1,}', tail))
                     decimal = c == '.' and i > 0 and self.buffer[i-1].isdigit() and following.isdigit()
-                    if (c == '\n' or not following or following.isspace()) and not abbreviation and not decimal:
+                    if (c in '\n।' or not following or following.isspace()) and not abbreviation and not decimal:
                         cut = i + 1
                         break
                 i += 1
@@ -97,13 +105,17 @@ class Segmenter:
                 cut = len(self.buffer)
             sentence, self.buffer = self.buffer[:cut], self.buffer[cut:]
             spoken = normalize_speech(sentence)
+            route = language_for(spoken,self.language)
             # Word-bounded small Hindi chunks mitigate upstream phonemizer truncation.
             while len(spoken) > self.limit:
                 position = spoken.rfind(' ', 0, self.limit + 1)
                 if position < 1:
                     position = self.limit
-                result.append(spoken[:position].strip())
+                result.append(SpeechSegment(spoken[:position].strip(),route))
                 spoken = spoken[position:].strip()
             if spoken:
-                result.append(spoken)
+                result.append(SpeechSegment(spoken,route))
         return result
+
+    def feed(self, text: str, final: bool = False) -> list[str]:
+        return [segment.text for segment in self.feed_segments(text,final)]

@@ -48,6 +48,7 @@ def test_incremental_boundaries_and_hindi_splitting_preserve_order():
     pieces = Segmenter().feed(('यह CPU के cache के बारे में है। '*30), final=True)
     assert all(len(piece) <= 160 for piece in pieces)
     assert len(pieces) > 10
+    assert len(Segmenter().feed('नमस्ते।ठीक है।',final=True))==2
 
 
 def test_code_fences_and_json_are_not_emitted_mid_stream():
@@ -361,3 +362,11 @@ def test_launch_request_does_not_claim_verified_gui_success():
         response=client.post('/chat/stream',headers=AUTH,json={'message':'Open app','voice_mode':True})
         speech=[json.loads(event.split('data: ')[1])['text'] for event in response.text.strip().split('\n\n') if event.startswith('event: speech_segment')]
         assert speech==['The application launch request was sent.','Check the application on your computer.']
+
+
+def test_chunks_of_one_mixed_sentence_keep_the_same_voice_language():
+    sentence='यह CPU का विवरण है ' + 'cache locality and memory performance '*12 + 'समझिए।'
+    chunks=Segmenter(limit=80).feed_segments(sentence,final=True)
+    assert len(chunks)>3
+    assert all(chunk.language=='hinglish' for chunk in chunks)
+    assert any(not any('\u0900'<=c<='\u097f' for c in chunk.text) for chunk in chunks)

@@ -232,7 +232,7 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                     messages[0]["content"] += f" Preferred response language: {body.voice_language}; honor explicit language requests in the current user message."
                     if not body.voice_tools:
                         messages[0]["content"] += " Tools are disabled for this turn. You cannot perform actions; never claim an action was performed."
-                speech = Segmenter()
+                speech = Segmenter(language=body.voice_language)
                 speech_sequence = 0
                 spoken_chars = 0
                 await _prepare_model(ollama, model, request.app.state.settings.allowed_models)
@@ -269,11 +269,11 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                                     iteration_answer.append(chunk.content)
                                     yield _sse("token", {"text": chunk.content})
                                     if body.voice_mode and not body.voice_tools:
-                                        for segment in speech.feed(chunk.content):
-                                            if spoken_chars + len(segment) <= 12000:
-                                                spoken_chars += len(segment)
+                                        for segment in speech.feed_segments(chunk.content):
+                                            if spoken_chars + len(segment.text) <= 12000:
+                                                spoken_chars += len(segment.text)
                                                 speech_sequence += 1
-                                                yield _sse("speech_segment", {"sequence":speech_sequence, "text":segment, "safety":"tool_free"})
+                                                yield _sse("speech_segment", {"sequence":speech_sequence, "text":segment.text, "language":segment.language, "safety":"tool_free"})
                                 if chunk.done:
                                     final_metrics = chunk.metrics or {}
                                     calls = chunk.tool_calls or []
@@ -387,11 +387,11 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                         final_speech = "The requested action was not completed. Details are available in the text response."
                     elif body.voice_tools and application_launch_requested:
                         final_speech = "The application launch request was sent. Check the application on your computer."
-                    for segment in speech.feed(final_speech, final=True):
-                        if spoken_chars + len(segment) <= 12000:
-                            spoken_chars += len(segment)
+                    for segment in speech.feed_segments(final_speech, final=True):
+                        if spoken_chars + len(segment.text) <= 12000:
+                            spoken_chars += len(segment.text)
                             speech_sequence += 1
-                            yield _sse("speech_segment", {"sequence":speech_sequence, "text":segment,
+                            yield _sse("speech_segment", {"sequence":speech_sequence, "text":segment.text, "language":segment.language,
                                 "safety":"completed_orchestration" if body.voice_tools else "tool_free"})
                 yield _sse("done", {
                     "conversation_id": conversation.id,

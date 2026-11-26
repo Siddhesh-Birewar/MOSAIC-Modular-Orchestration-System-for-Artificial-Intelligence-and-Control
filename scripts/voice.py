@@ -250,7 +250,7 @@ class VoiceSession:
                 self.metrics.setdefault("first_safe_token_seconds",time.monotonic()-self.eos)
             if "first_segment_seconds" not in self.metrics:
                 self.metrics["first_segment_seconds"] = time.monotonic()-self.eos
-            put(segments, data["text"])
+            put(segments, (data["text"],data.get("language")))
         options = {"voice_mode":True, "voice_tools":self.tools, "voice_language":self.language, "reasoning":self.reasoning}
         # Tool turns read approvals on the main thread and buffer only committed final speech.
         buffered = []
@@ -280,12 +280,13 @@ class VoiceSession:
                     segment = get(segments)
                     if segment is end:
                         break
+                    segment, route = segment
                     started = time.monotonic()
                     response = self.cli.client.post(
                         f"{self.cli.backend_url}/voice/synthesize",
                         headers={**self.cli._auth_headers(),"X-Voice-Session":session},
                         json={"text":segment,"voice":self.voice,"speed":self.speed,
-                              "provider":self.provider,"language":language_for(segment,self.language,detected),
+                              "provider":self.provider,"language":route if route in {"en","hi","hinglish"} else language_for(segment,self.language,detected),
                               "detected_language":detected if detected in {"en","hi"} else None})
                     response.raise_for_status()
                     audio = decode_wav(response.content)
