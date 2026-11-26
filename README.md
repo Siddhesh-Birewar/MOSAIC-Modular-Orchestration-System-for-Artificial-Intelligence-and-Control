@@ -4,7 +4,16 @@ Modular Orchestration System for Artificial Intelligence and Control.
 
 A local-first personal AI assistant.
 
-Development status: Phase 4 complete — persistent memory, notes and learning (v0.4.0; roadmap 30%).
+Development status: Phase 6 local voice intelligence in progress. Phase 5 dashboard/humanoid is deferred. Latest stable milestone: v0.4.0 (30%).
+
+## Learn the codebase
+
+The [learning documentation](docs/learning/README.md) provides a study roadmap,
+evidence-backed guides to Phases 1–4 and active Phase 6, source/function references,
+commands, troubleshooting, benchmark history, rebuilding exercises and educational
+content ideas. Historical facts and reconstructed explanations are labeled separately.
+These records are maintained during every future development phase and verified at
+milestone closeout. They do not change pending acceptance or release status.
 
 ## Backend quick start
 
@@ -51,7 +60,7 @@ Manual verification on macOS confirmed bearer authentication (unauthenticated pe
 requests return 401), note creation (201), stable note UUID/content/timestamps after restart,
 ordered conversation history after restart, curated memory recall in a fresh conversation,
 and learning topic status/progress persistence. Invalid subject IDs return 404.
-The full suite passes 53 tests. SQLite remains unencrypted at rest; memory retrieval uses
+Phase 4 closed with 53 passing tests. SQLite remains unencrypted at rest; memory retrieval uses
 keywords only. Run one backend worker: inference and conversation mutations share a
 process-local lock. Access logging is suppressed to keep personal URL search terms out of logs.
 
@@ -98,3 +107,45 @@ Run checks from the `backend/` directory with `.venv/bin/python -m pytest`. To d
 installed models, start the API and run `python scripts/benchmark_models.py` from the
 repository root. This makes ten model inferences by default and is not run automatically;
 use `--model qwen3:8b` to limit the run.
+
+## Neural voice CLI (Phase 6 draft)
+
+Phase 5 dashboard/humanoid remains deferred. The existing isolated `mosaic-voice` environment
+runs a persistent offline Kokoro worker; backend dependencies remain isolated. English uses
+af_bella; Hindi/Hinglish use hf_alpha. Installed macOS TTS remains explicitly selectable.
+Do not reinstall packages or download the already cached model unnecessarily. The cached
+repository name includes BF16 but its weight header is F32; status reports runtime dtypes.
+
+See [docs/VOICE.md](docs/VOICE.md) for verified environments, cache resolution, IPC/lifecycle
+limits, exact configuration, benchmarks and manual acceptance. Start the backend using the
+existing command above (`--env-file ../.env`), export `.env` locally and run:
+
+```sh
+backend/.venv/bin/python scripts/chat.py --backend http://127.0.0.1:8000
+```
+
+Use `/tts kokoro` to warm the engine, `/voice-status`, `/voices`, `/mic [INDEX]`, `/voice`,
+`/voice on`, `/voice off`, `/language auto|en|hi|hinglish`, `/speed 0.5–2`,
+`/reasoning default|low|medium|high`, `/voice-tools on|off`, and `/tts macos`.
+`/transcript-preview on|off` optionally displays recognized text locally and asks for
+confirmation; it is off by default and creates no additional persistent log. Hindi and
+Hinglish force Whisper's Hindi argument. Wrong/unsupported scripts stop before chat;
+the existing Base/runtime still failed synthetic Hindi quality checks. Explicit response
+language settings override old conversation preferences; one bounded tool-free correction
+may repair unspoken response text without repeating actions or adding history turns.
+Ctrl+C interrupts; the microphone closes during responses. Tools stay on by default and
+speech waits for completed orchestration. Explicit tools-off mode streams eligible speech
+segments while the model generates; synthesis/playback queues are bounded and ordered.
+Existing text commands, persisted history and typed approvals are preserved.
+
+The reliability update passes 160 deterministic tests; the separately identified real-model
+integration also passes. Worker failures now expose safe categories/stages/exit codes or
+memory counters while retaining memory limits. New VAD defaults are 0.010 / 2.0 seconds;
+existing `.env` overrides are preserved. First-audio metrics now follow actual output-stream
+start rather than staying null. See the voice guide for clock boundaries and retest commands.
+
+Earlier short warm neural synthesis measured 0.130–0.171 s;
+concurrent synthesis measured 0.596–0.875 s. The earlier live HTTP probe reached generated audio in
+4.074 s, which misses the ideal three-second target even before playback. Actual audible
+latency and sustained concurrency require manual acceptance. No acoustic barge-in or
+phoneme/viseme alignment is claimed. The PR stays draft and stable release stays v0.4.0.

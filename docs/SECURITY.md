@@ -19,3 +19,24 @@
 - Conversation, chat, notes, learning, and memory endpoints require the configured bearer token. Memories are created only through explicit user-facing API requests; retrieval is bounded and labeled untrusted context. Conversation logs are not automatically promoted into memory.
 
 - Phase 4 closeout verified authentication, restart persistence, curated memory recall, learning integrity, and safe reset behavior. Transport/access URL logging is disabled and validation responses omit submitted input. SQLite integrity conflicts return a generic 409 response. The API/package release version is 0.4.0.
+
+- Phase 6 speech endpoints require bearer authentication. Voice clients accept only loopback
+  backend URLs. Audio requests are capped at 2 MB/30 seconds, mono 16 kHz 16-bit PCM; speech
+  text is capped at 1,000 characters per API call. Replies are capped to 12,000 spoken characters.
+- Recording is opt-in, continuous capture requires `/voice on`, and the microphone closes
+  while thinking/speaking. Ctrl+C cancels active work and returns to text. Speech never bypasses
+  tool policy: application launches still need a typed user approval through the existing API.
+- Raw microphone data lives in client memory and briefly in a private provider temporary
+  directory; cleanup runs on success/failure/cancellation. No audio is stored in SQLite. OS
+  caches/swap and abnormal process termination may leave traces; deletion is not secure erasure.
+- Speech executables/model paths come only from local trusted configuration, never requests
+  or model output. Fixed arguments use no shell; TTS text uses stdin. Temporary results and
+  provider errors are sanitized; personal audio/text is not logged. No models download on startup.
+
+- Neural voice upgrade: private worker pipes use bounded validated messages and matching IDs. The neural process inherits no API tokens, denies network connections, and uses verified local assets. Model/voice paths are trusted configuration, not request arguments. No shell execution is introduced. Library/native stdout/stderr is suppressed to avoid private text leakage.
+- Neural synthesis is serialized with bounded admission, restart/time limits, cancellation/reaping and idle/memory-aware release. A per-model user lock prevents duplicate workers; no unrelated user processes are terminated. Native fallback must be explicitly enabled and is visibly labeled.
+- Speech events are separate from text tokens. Tool-enabled turns speak only the final completed iteration; failed/denied tools use deterministic noncompletion speech. Explicit tool-free streaming disables actual tools. Hidden reasoning, provisional tool prefatory text and raw tool JSON are excluded from speech.
+- Voice script mismatches cannot silently become model input: the CLI rejects invalid recognition before chat. Optional preview/confirmation is local and off by default; terminal scrollback can retain its text. API clients receive validation metadata and must honor it. Accepted messages retain the existing SQLite policy; no additional transcript log is introduced.
+- Response-language recovery uses at most one bounded tools-disabled rewrite of unspoken text. It never invokes tools/approval decisions again or writes another conversation turn. Original text stays unchanged; rewrite fluency/factual equivalence is not guaranteed by alphabet checks. Unsupported scripts are denied in the neural provider and worker.
+- Neural diagnostics expose fixed categories/stages and numeric counters only, never provider exception text, request fields, audio or credentials. Deliberate cleanup reason is separate from observed exit codes. A signal alone cannot prove an OOM. Memory admission limits remain enabled; a rejected queued request cannot terminate another request's worker.
+- Authenticated UUID-scoped voice cancellation stops only matching provider operations. Mic capture remains half-duplex and explicitly activated. OS swap may contain traces; IPC/audio cleanup is not secure erasure. MLX allocation, RSS and system memory pressure measure different things.

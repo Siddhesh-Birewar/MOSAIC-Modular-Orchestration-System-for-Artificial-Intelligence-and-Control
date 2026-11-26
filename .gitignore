@@ -12,3 +12,16 @@ __pycache__/
 .DS_Store
 dist/
 build/
+
+# Local speech assets and recordings
+*.wav
+*.aiff
+*.aif
+*.mp3
+*.gguf
+*.ggml
+ggml-*.bin
+voice-models/
+
+*.safetensors
+*.npz

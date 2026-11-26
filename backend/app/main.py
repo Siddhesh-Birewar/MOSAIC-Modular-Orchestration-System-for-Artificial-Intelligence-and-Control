@@ -11,6 +11,9 @@ from app.api.health import router as health_router
 from app.api.intelligence import router as intelligence_router
 from app.api.personal_data import router as personal_data_router
 from app.api.tools import router as tools_router
+from app.api.voice import router as voice_router
+from app.voice.providers import MacOSTTS, WhisperCpp
+from app.voice.neural import KokoroWorker, VoiceEngine
 from app.core.config import Settings
 from app.core.logging import configure_logging
 from app.database import Database
@@ -38,6 +41,16 @@ def create_app(settings: Settings | None = None, ollama: OllamaClient | None = N
         app.state.database = Database(config.database_path)
         app.state.conversations = ConversationStore(app.state.database)
         app.state.inference_lock = asyncio.Lock()
+        app.state.voice_lock = asyncio.Lock()
+        app.state.voice_requests = {}
+        app.state.voice_cancelled_sessions = {}
+        app.state.stt = WhisperCpp(config.whisper_executable, config.whisper_model)
+        app.state.neural = KokoroWorker(config.neural_python, config.kokoro_model,
+            warmup=config.neural_warmup, timeout=config.neural_timeout,
+            idle_seconds=config.neural_idle_seconds, queue_size=config.neural_queue_size,
+            min_available_mb=config.neural_min_available_mb)
+        app.state.voice_engine = VoiceEngine(app.state.neural, config.tts_provider, config.tts_fallback)
+        app.state.tts = app.state.voice_engine if config.tts_provider == "kokoro" else MacOSTTS()
         app.state.file_access = FileAccess(config.allowed_roots)
         app.state.permission_manager = PermissionManager(
             app.state.file_access, config.allowed_applications,
@@ -60,6 +73,7 @@ def create_app(settings: Settings | None = None, ollama: OllamaClient | None = N
         try:
             yield
         finally:
+            await app.state.neural.close()
             app.state.database.close()
 
     app = FastAPI(title="MOSAIC API", version="0.4.0", lifespan=lifespan)
@@ -77,6 +91,7 @@ def create_app(settings: Settings | None = None, ollama: OllamaClient | None = N
     app.include_router(intelligence_router)
     app.include_router(tools_router)
     app.include_router(personal_data_router)
+    app.include_router(voice_router)
     return app
 
 

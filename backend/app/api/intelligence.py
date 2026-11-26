@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Iterator
 from dataclasses import asdict
 from typing import Any
 
@@ -27,6 +28,9 @@ from app.tools.base import ToolContext
 from app.tools.executor import ToolExecutionError
 from app.api.tools import local_token_is_valid, require_local_token
 from app.api.personal_data import retrieve_memories
+from app.voice.text import Segmenter, SpeechSegment
+from app.voice.language import language_issue, language_notice, resolve_language, voice_instruction
+from app.voice.response import repair_response
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -205,6 +209,15 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
     tools_authorized = local_token_is_valid(request)
     conversation = await _resolve_chat(body, request)
     ollama: OllamaClient = request.app.state.ollama
+    think = None
+    if body.voice_mode and body.reasoning != "default":
+        try:
+            supported = await ollama.thinking_levels(conversation.model)
+        except OllamaError as exc:
+            raise _translate_error(exc) from exc
+        if body.reasoning not in supported:
+            raise HTTPException(status_code=422, detail="Selected reasoning mode is not advertised by the installed model")
+        think = body.reasoning
 
     async def events():
         started = time.monotonic()
@@ -216,11 +229,44 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
             async with request.app.state.inference_lock:
                 current = request.app.state.conversations.set_model(conversation.id, model)
                 messages = _messages(request, current, body.message, model)
+                if body.voice_mode:
+                    messages[0]["content"] += ("\nVoice conversation: answer naturally and concisely, without repeated introductions or decorative emojis. "
+                        "Use minimal formatting. Explain at length when the user requests it. Preserve teaching accuracy and tool safety.")
+                    messages[0]["content"] += " " + voice_instruction(resolve_language(body.message,body.voice_language))
+                    if not body.voice_tools:
+                        messages[0]["content"] += " Tools are disabled for this turn. You cannot perform actions; never claim an action was performed."
+                response_language = resolve_language(body.message,body.voice_language)
+                speech = Segmenter(language=response_language)
+                speech_sequence = 0
+                spoken_chars = 0
+                repair_tail: list[str] = []
+                needs_repair = False
+                repair_seconds = None
+
+                def speech_events(segments: list[SpeechSegment], safety: str) -> Iterator[str]:
+                    nonlocal speech_sequence, spoken_chars, needs_repair
+                    for segment in segments:
+                        if spoken_chars + len(segment.text) > 12000:
+                            continue
+                        spoken_chars += len(segment.text)
+                        issue = language_issue(segment.text,response_language)
+                        # A long mixed sentence can contain an English-only technical chunk.
+                        if issue == 'script_mismatch' and segment.source_has_devanagari:
+                            issue = None
+                        if issue or needs_repair:
+                            needs_repair = True
+                            repair_tail.append(segment.text)
+                            continue
+                        speech_sequence += 1
+                        yield _sse('speech_segment', {'sequence':speech_sequence, 'text':segment.text,
+                            'language':response_language, 'safety':safety})
                 await _prepare_model(ollama, model, request.app.state.settings.allowed_models)
                 definitions = (
                     [tool.ollama_definition() for tool in request.app.state.tool_registry.list()]
-                    if tools_authorized else []
+                    if tools_authorized and (not body.voice_mode or body.voice_tools) else []
                 )
+                tool_speech_blocked = False
+                application_launch_requested = False
                 tool_calls_used = 0
                 tool_execution_seconds = 0.0
                 final_metrics: dict[str, Any] = {}
@@ -231,9 +277,11 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                     if orchestration_remaining <= 0:
                         yield _sse("error", {"detail": "Orchestration time limit reached"})
                         return
+                    options = {"think":think} if think else {}
                     stream = ollama.stream_chat(
-                        model, messages, request.app.state.settings.keep_alive, tools=definitions
+                        model, messages, request.app.state.settings.keep_alive, tools=definitions, **options
                     )
+                    iteration_answer = []
                     calls = None
                     assistant_message = None
                     try:
@@ -243,7 +291,11 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                                     if first_chunk_at is None:
                                         first_chunk_at = time.monotonic()
                                     answer.append(chunk.content)
+                                    iteration_answer.append(chunk.content)
                                     yield _sse("token", {"text": chunk.content})
+                                    if body.voice_mode and not body.voice_tools:
+                                        for event in speech_events(speech.feed_segments(chunk.content),'tool_free'):
+                                            yield event
                                 if chunk.done:
                                     final_metrics = chunk.metrics or {}
                                     calls = chunk.tool_calls or []
@@ -258,7 +310,7 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                     if not calls:
                         completed = True
                         break
-                    if not tools_authorized:
+                    if not tools_authorized or (body.voice_mode and not body.voice_tools):
                         yield _sse("error", {"detail": "Tool execution requires authenticated CLI access"})
                         return
                     if (
@@ -330,6 +382,11 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                             result_data = {"status": "denied", "reason": "Approval expired or was rejected"}
                         except ToolExecutionError as exc:
                             result_data = {"status": "failed", "reason": exc.category}
+                        if result_data.get("status") != "completed":
+                            tool_speech_blocked = True
+                        elif tool_id == "applications_launch":
+                            # The launcher confirms submission, not that a GUI window opened.
+                            application_launch_requested = True
                         messages.append({
                             "role": "tool",
                             "tool_name": tool_id,
@@ -346,13 +403,43 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                 )
                 metrics.total_duration_seconds = round(time.monotonic() - started, 6)
                 request.app.state.conversations.append_turn(conversation, body.message, "".join(answer))
+                if body.voice_mode:
+                    final_speech = "".join(iteration_answer) if body.voice_tools else ""
+                    if body.voice_tools and tool_speech_blocked:
+                        final_speech = ("The requested action was not completed. Details are available in the text response."
+                            if response_language == 'en' else "अनुरोधित कार्य पूरा नहीं हुआ। विवरण लिखित उत्तर में उपलब्ध है।")
+                    elif body.voice_tools and application_launch_requested:
+                        final_speech = ("The application launch request was sent. Check the application on your computer."
+                            if response_language == 'en' else "ऐप खोलने का अनुरोध भेजा गया है। कृपया अपने कंप्यूटर पर जाँचें।")
+                    safety = 'completed_orchestration' if body.voice_tools else 'tool_free'
+                    for event in speech_events(speech.feed_segments(final_speech,final=True),safety):
+                        yield event
+                    if needs_repair:
+                        yield _sse('voice_warning', {'category':'response_language_mismatch','recovery':'one_tool_free_rewrite'})
+                        remaining = request.app.state.settings.max_orchestration_seconds-(time.monotonic()-started)
+                        repair_started = time.monotonic()
+                        repaired = await repair_response(ollama,model,' '.join(repair_tail),response_language,
+                                                         request.app.state.settings.keep_alive,remaining,think)
+                        repair_seconds = time.monotonic()-repair_started
+                        # Never retry tools or rewrite already-played sentences. Validate the full
+                        # correction before emitting any of it; one failed repair ends in a notice.
+                        corrected = Segmenter(language=response_language).feed_segments(
+                            repaired or language_notice(response_language),final=True)
+                        for segment in corrected:
+                            speech_sequence += 1
+                            yield _sse('speech_segment', {'sequence':speech_sequence,'text':segment.text,
+                                'language':response_language,'safety':safety})
+                metrics.total_duration_seconds = round(time.monotonic()-started,6)
                 yield _sse("done", {
                     "conversation_id": conversation.id,
                     "model": model,
-                    "metrics": asdict(metrics),
+                    "metrics": {**asdict(metrics), **({'voice_language_repair_seconds':round(repair_seconds,6),
+                                                      'voice_language_repair_attempts':1} if repair_seconds is not None else {})},
                     "tool_calls": tool_calls_used,
                 })
                 logger.info("Streaming chat completed")
+        except ValueError:
+            yield _sse("error", {"detail":"Voice segment buffer limit reached"})
         except ConversationNotFoundError:
             yield _sse("error", {"detail": "Conversation not found"})
         except asyncio.CancelledError:

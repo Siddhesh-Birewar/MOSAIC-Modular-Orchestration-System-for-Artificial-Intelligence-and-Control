@@ -17,6 +17,17 @@ class Settings:
     keep_alive: str = "5m"
     system_prompt: str = ""
     api_token: str = ""
+    tts_provider: str = "macos"
+    neural_python: str = "/opt/anaconda3/envs/mosaic-voice/bin/python"
+    kokoro_model: str = ""
+    neural_warmup: bool = True
+    neural_timeout: float = 60
+    neural_idle_seconds: float = 180
+    neural_queue_size: int = 3
+    neural_min_available_mb: int = 1024
+    tts_fallback: bool = False
+    whisper_executable: str = ""
+    whisper_model: str = ""
     database_path: str = ":memory:"
     allowed_roots: tuple[str, ...] = ()
     allowed_applications: tuple[str, ...] = (
@@ -52,7 +63,25 @@ class Settings:
             ).split(",")
             if name.strip()
         )
+        provider = os.getenv("MOSAIC_TTS_PROVIDER", "kokoro")
+        if provider not in {"kokoro", "macos"}:
+            raise ValueError("Invalid MOSAIC_TTS_PROVIDER")
+        queue_size = int(os.getenv("MOSAIC_NEURAL_QUEUE_SIZE", "3"))
+        idle = float(os.getenv("MOSAIC_NEURAL_IDLE_SECONDS", "180"))
+        neural_timeout = float(os.getenv("MOSAIC_NEURAL_TIMEOUT", "60"))
+        min_available_mb = int(os.getenv("MOSAIC_NEURAL_MIN_AVAILABLE_MB", "1024"))
+        if not 1 <= queue_size <= 8 or not 5 <= idle <= 3600 or not 1 <= neural_timeout <= 180:
+            raise ValueError("Invalid neural voice lifecycle limits")
+        if min_available_mb < 1:
+            raise ValueError("MOSAIC_NEURAL_MIN_AVAILABLE_MB must be positive")
         return cls(
+            tts_provider=provider,
+            neural_python=os.getenv("MOSAIC_NEURAL_PYTHON", cls.neural_python),
+            kokoro_model=os.getenv("MOSAIC_KOKORO_MODEL", ""),
+            neural_warmup=os.getenv("MOSAIC_NEURAL_WARMUP", "1") == "1",
+            neural_timeout=neural_timeout, neural_idle_seconds=idle, neural_queue_size=queue_size,
+            neural_min_available_mb=min_available_mb,
+            tts_fallback=os.getenv("MOSAIC_TTS_FALLBACK", "0") == "1",
             ollama_url=os.getenv("MOSAIC_OLLAMA_URL", cls.ollama_url).rstrip("/"),
             primary_model=os.getenv("MOSAIC_PRIMARY_MODEL", cls.primary_model),
             request_timeout=timeout,
@@ -61,6 +90,8 @@ class Settings:
             context_limit=context_limit,
             keep_alive=os.getenv("MOSAIC_KEEP_ALIVE", "5m"),
             system_prompt=os.getenv("MOSAIC_SYSTEM_PROMPT", ""),
+            whisper_executable=os.getenv("MOSAIC_WHISPER_EXECUTABLE", ""),
+            whisper_model=os.getenv("MOSAIC_WHISPER_MODEL", ""),
             api_token=os.getenv("MOSAIC_API_TOKEN", ""),
             database_path=os.getenv("MOSAIC_DB_PATH", "").strip() or str(default_database_path()),
             allowed_roots=allowed_roots,
