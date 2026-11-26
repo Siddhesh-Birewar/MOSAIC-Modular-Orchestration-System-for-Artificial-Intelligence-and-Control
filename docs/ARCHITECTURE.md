@@ -32,23 +32,32 @@ The CLI at `scripts/chat.py` uses only the FastAPI API. It handles SSE increment
 
 Phase 4 closeout uses API/package version 0.4.0. Run a single backend worker. Conversation resets, deletes, and model updates share the inference lock; queued inference reloads current stored context and commits complete turns inside that lock. Transport/access logs are suppressed because URLs can contain private search terms; validation and integrity error responses omit submitted values and SQL details.
 
-## Phase 6 voice preview
+## Phase 6 neural voice (draft)
 
-`app.voice` contains audio validation and provider contracts (`STTProvider`/`TTSProvider`).
-`POST /voice/transcribe` accepts bounded mono 16 kHz PCM WAV bytes with `language=auto|en|hi`.
-`POST /voice/synthesize` accepts bounded text, installed voice name, and speed; it returns WAV.
-`GET /voice/status` and `/voice/voices` report setup and actual installed voice metadata.
-All routes require the same local bearer token. A process-local voice lock bounds provider
-concurrency; disconnects cancel subprocess work and temporary directories are removed.
+The CLI owns opt-in half-duplex mic/playback. FastAPI speech endpoints remain authenticated.
+`app.voice.neural` manages a persistent subprocess using the separate neural Python runtime;
+`neural_worker` loads local MLX Kokoro assets once and caches language pipelines. Private
+bounded JSONL pipes, per-model process lock, offline network denial, queue/time/restart
+limits and idle/memory admission keep it a local adapter inside the modular monolith.
+No separate unauthenticated service or backend MLX dependency is introduced.
 
-`scripts.voice` owns explicitly activated microphone capture, energy VAD, playback, and the
-voice state machine. It calls the authenticated FastAPI speech APIs and the existing
-`MosaicCLI.send_message` SSE conversation flow; it introduces no separate inference or tool
-execution path. Replies are synthesized sentence-by-sentence after chat completes. This
-trades first-audio latency for predictable approval and failure behavior. Microphone capture
-and playback do not overlap. Text approval is required; speech cannot approve its own tools.
+`app.voice.text` normalizes only spoken text and parses bounded incremental sentence
+segments. Original chat history remains unchanged. Chat adds voice_mode, voice_tools,
+voice_language and explicit validated reasoning levels. Tool-free mode emits ordered
+speech_segment SSE events as eligible segments arrive. Tool mode emits final-iteration
+speech only after completed orchestration/persistence; failures produce deterministic
+noncompletion speech. Clients never synthesize raw token, thinking, or tool JSON events.
 
-`VoiceEvent` exposes state, measured PCM RMS, speech start/end and software playback
-position/elapsed timing through an injectable event sink. Phoneme/viseme fields remain null.
-Events contain no audio, transcript, or credentials. Actual hardware output latency is not
-measured; future clients may consume these events without coupling backend modules to UI.
+Client text/audio queues (3/2) provide ordered synthesis/playback and backpressure. Typed
+approval stays on the main thread for tool turns. Cancelling closes the LLM stream and
+cancels provider tasks bound to X-Voice-Session UUID through POST /voice/cancel/{id}.
+POST /voice/warmup initializes the retained worker. Synthesis adds provider, language and
+detected_language; existing speech API inputs remain valid. GET /voice/status reports
+worker readiness/warmth/dtypes/RSS/MLX metrics and fallback; /voice/voices?provider=... lists
+supported neural or installed native voices. Generated WAV headers identify sample rate,
+provider and fallback. None of these endpoints bypass existing bearer authentication.
+
+VoiceEvent exposes speech/playback start/end, submitted PCM position/amplitude, state and
+cancellation. Device-stream timing is not calibrated audible onset. Phoneme/viseme fields
+remain null. Phase 5 UI/humanoid is deferred; no frontend dependency or implementation is added.
+See VOICE.md for exact lifecycle/IPC semantics and measured performance limitations.

@@ -32,3 +32,8 @@
 - Speech executables/model paths come only from local trusted configuration, never requests
   or model output. Fixed arguments use no shell; TTS text uses stdin. Temporary results and
   provider errors are sanitized; personal audio/text is not logged. No models download on startup.
+
+- Neural voice upgrade: private worker pipes use bounded validated messages and matching IDs. The neural process inherits no API tokens, denies network connections, and uses verified local assets. Model/voice paths are trusted configuration, not request arguments. No shell execution is introduced. Library/native stdout/stderr is suppressed to avoid private text leakage.
+- Neural synthesis is serialized with bounded admission, restart/time limits, cancellation/reaping and idle/memory-aware release. A per-model user lock prevents duplicate workers; no unrelated user processes are terminated. Native fallback must be explicitly enabled and is visibly labeled.
+- Speech events are separate from text tokens. Tool-enabled turns speak only the final completed iteration; failed/denied tools use deterministic noncompletion speech. Explicit tool-free streaming disables actual tools. Hidden reasoning, provisional tool prefatory text and raw tool JSON are excluded from speech.
+- Authenticated UUID-scoped voice cancellation stops only matching provider operations. Mic capture remains half-duplex and explicitly activated. OS swap may contain traces; IPC/audio cleanup is not secure erasure. MLX allocation, RSS and system memory pressure measure different things.

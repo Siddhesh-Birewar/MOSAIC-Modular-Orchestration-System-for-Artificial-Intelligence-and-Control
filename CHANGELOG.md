@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased — Phase 6 preview
+## Unreleased — Phase 6 neural upgrade
+- Added persistent offline MLX Kokoro worker using the existing isolated neural environment and cached assets, with warm-up, bounded IPC/queues/restarts, cancellation, retention, readiness/dtype/resource reporting and explicit native fallback.
+- Added spoken normalization, English/Hindi/Hinglish routing, bounded segmentation and ordered streaming synthesis/playback. Tool-enabled speech remains buffered until completed orchestration; failed actions receive deterministic noncompletion notices.
+- Added language/provider/speed/reasoning/tool-mode CLI controls, UUID-scoped cancellation, validated installed Ollama thinking levels and real-model benchmark tooling. Preserve original transcripts and typed approvals.
+- 116 deterministic tests plus one explicit real-model integration test pass. Component and real HTTP experiments confirm streaming overlap but concurrent synthesis and first-generated-audio targets are not universally met; audible/continuous/sustained-load acceptance remains pending.
+
+## Earlier Phase 6 preview
 - Deferred Phase 5 dashboard/humanoid and retained phase numbering for backend-first development.
 - Added authenticated local speech APIs, Whisper.cpp and installed macOS TTS adapters, bounded PCM validation, cancellation, temporary-file cleanup, and optional sounddevice capture/playback.
 - Added explicit voice CLI modes, energy VAD, state/amplitude/playback events, sentence synthesis, and an opt-in benchmark script. Existing persistence and typed tool approval paths are reused.

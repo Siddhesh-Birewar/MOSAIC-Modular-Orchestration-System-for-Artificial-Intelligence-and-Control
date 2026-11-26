@@ -51,7 +51,7 @@ Manual verification on macOS confirmed bearer authentication (unauthenticated pe
 requests return 401), note creation (201), stable note UUID/content/timestamps after restart,
 ordered conversation history after restart, curated memory recall in a fresh conversation,
 and learning topic status/progress persistence. Invalid subject IDs return 404.
-The full suite passes 53 tests. SQLite remains unencrypted at rest; memory retrieval uses
+Phase 4 closed with 53 passing tests. SQLite remains unencrypted at rest; memory retrieval uses
 keywords only. Run one backend worker: inference and conversation mutations share a
 process-local lock. Access logging is suppressed to keep personal URL search terms out of logs.
 
@@ -99,21 +99,32 @@ installed models, start the API and run `python scripts/benchmark_models.py` fro
 repository root. This makes ten model inferences by default and is not run automatically;
 use `--model qwen3:8b` to limit the run.
 
-## Local voice CLI (Phase 6 preview)
+## Neural voice CLI (Phase 6 draft)
 
-Follow [docs/VOICE.md](docs/VOICE.md) to configure an existing local Whisper.cpp binary
-and approved multilingual model. Install optional microphone/playback support with
-`backend/.venv/bin/python -m pip install -e 'backend[voice]'`, then use the existing backend
-startup command including `--env-file ../.env`. Export local `.env` values before starting
-`backend/.venv/bin/python scripts/chat.py`.
+Phase 5 dashboard/humanoid remains deferred. The existing isolated `mosaic-voice` environment
+runs a persistent offline Kokoro worker; backend dependencies remain isolated. English uses
+af_bella; Hindi/Hinglish use hf_alpha. Installed macOS TTS remains explicitly selectable.
+Do not reinstall packages or download the already cached model unnecessarily. The cached
+repository name includes BF16 but its weight header is F32; status reports runtime dtypes.
 
-`/voice` arms one utterance after Enter; energy VAD ends it on silence. `/voice on` explicitly
-enters continuous conversation; Ctrl+C interrupts capture, inference, or playback and returns
-to text. `/voice off`, `/mic [INDEX]`, `/voices`, and `/voice-status` configure/inspect voice.
-The microphone closes before each model reply and playback to prevent feedback. Existing
-conversation commands, saved memory, and typed action approvals are reused. English/Hindi/
-Hinglish recognition quality and voice naturalness still require manual verification.
+See [docs/VOICE.md](docs/VOICE.md) for verified environments, cache resolution, IPC/lifecycle
+limits, exact configuration, benchmarks and manual acceptance. Start the backend using the
+existing command above (`--env-file ../.env`), export `.env` locally and run:
 
-No speech weights or cloud services are installed automatically. The initial TTS adapter uses
-installed macOS voices; Kokoro and IndicF5 evaluation and benchmark limits are documented
-in [docs/VOICE.md](docs/VOICE.md). No Phase 5 frontend files are changed.
+```sh
+backend/.venv/bin/python scripts/chat.py --backend http://127.0.0.1:8000
+```
+
+Use `/tts kokoro` to warm the engine, `/voice-status`, `/voices`, `/mic [INDEX]`, `/voice`,
+`/voice on`, `/voice off`, `/language auto|en|hi|hinglish`, `/speed 0.5–2`,
+`/reasoning default|low|medium|high`, `/voice-tools on|off`, and `/tts macos`.
+Ctrl+C interrupts; the microphone closes during responses. Tools stay on by default and
+speech waits for completed orchestration. Explicit tools-off mode streams eligible speech
+segments while the model generates; synthesis/playback queues are bounded and ordered.
+Existing text commands, persisted history and typed approvals are preserved.
+
+The upgrade passes 116 deterministic tests plus one explicit real-model integration test. Short warm neural synthesis measured 0.130–0.171 s;
+concurrent synthesis measured 0.596–0.875 s. The live HTTP probe reached generated audio in
+4.074 s, which misses the ideal three-second target even before playback. Actual audible
+latency and sustained concurrency require manual acceptance. No acoustic barge-in or
+phoneme/viseme alignment is claimed. The PR stays draft and stable release stays v0.4.0.

@@ -6,16 +6,21 @@ Phase 5 dashboard/humanoid is officially deferred; original numbering is retaine
 Phase 4 is complete at annotated `v0.4.0` / merge `fd37903`; the last verified cumulative
 roadmap milestone remains 30%. No Phase 5 work is removed or changed.
 
-## Phase 6 implementation and verification
-- Baseline: clean Phase 5 branch at main `fd37903`; remote main and annotated v0.4.0 verified. Existing 53 tests passed before implementation; Phase 6 branch created from synchronized main.
-- Added validated PCM audio, local Whisper.cpp adapter, provider-independent STT/TTS protocols, installed macOS speech adapter, authenticated speech APIs and cancelable local subprocess cleanup.
-- Added explicit push-to-talk/continuous CLI modes, configurable energy VAD and mic, existing chat/memory/tool-approval integration, sentence playback and content-free voice events. Microphone capture closes during replies.
-- Installed the optional sounddevice dependency successfully on macOS ARM64. No microphone capture or application launching was performed during development checks.
-- Live localhost API checks passed: unauthenticated voice status 401, authenticated status 200, native synthesis 200 with no-store WAV, malformed audio 422. No audio playback or microphone capture was involved.
-- Native English WAV generation smoke passed. Benchmark: 1.763 s to generated audio; 3.299 s audio; 64,012,288-byte sampled process-tree peak RSS (excludes Ollama and OS speech daemons). Real STT/full-pipeline latency is unmeasured because no local whisper-cli/weights were configured.
-- Full automated suite: 78 passed (one existing Starlette/httpx deprecation warning); compile and diff checks passed. Voice tests use mocked hardware/providers. English/Hindi/Hinglish recognition quality and TTS naturalness remain unverified; provider locale metadata does not establish tested support.
-- Keep stable API/package metadata at 0.4.0 pending verification; intended voice tag is v0.6.0 with no implied Phase 5 completion. Do not merge/tag until manual checks in [VOICE.md](VOICE.md) are confirmed.
-- Speech weights have not been downloaded. Configure an existing approved multilingual model or obtain explicit approval for the selected download before attempting live transcription.
+## Phase 6 neural upgrade — application acceptance pending
+- Continued from clean synchronized preview commit d8d3e46 on the same branch/PR #4; baseline 78 tests passed.
+- Verified existing isolated Python 3.12.16 neural environment (mlx-audio 0.6.8, mlx 0.32.5, misaki 0.9.4), Whisper executable/Base files and cached Kokoro assets. No dependencies reinstalled or weights downloaded. Actual cached tensor header is F32 despite the repository BF16 label; runtime dtype reporting is included.
+- Implemented one offline persistent Kokoro worker, reused model/language pipelines, configurable warm-up, bounded private IPC/queues, process lock, timeout/cancellation/reaping, bounded restart attempts, idle/memory-aware release and explicit labeled macOS fallback.
+- Added speech normalization, response-aware English/Hindi/Hinglish routing and bounded Hindi segmentation. Two bounded client stages overlap synthesis/playback with tool-free LLM generation. Tool-enabled turns buffer until completed orchestration; denied/failed tools receive deterministic spoken noncompletion notices.
+- Added explicit language/provider/speed/reasoning/tool-mode CLI controls. The installed Ollama 0.40.16 advertises GPT-OSS low/medium/high; requests are validated before sending think. GPT-OSS remains the default; no heuristic automatic model/reasoning switch.
+- Extended content-free playback/state/cancellation events and recovery. Half-duplex capture and typed approvals are preserved. No frontend, humanoid, acoustic barge-in or fabricated alignment.
+- Automated suite: 116 passed, one real-model integration skipped by default (executed separately and passed), one existing Starlette/httpx deprecation warning. Compile/diff checks passed at the last run; rerun after final edits.
+- Real offline warm neural generation reused one PID: short requests 0.130–0.171 s; synthetic Whisper first/repeat 0.331/0.229 s. Worker initialization with warm-up 2.677 s.
+- Concurrent TTS 0.596–0.875 s (misses <0.5 s goal); RTF 0.127–0.186. GPT-OSS 22.45 tokens/s alone vs 14.54 with TTS in a short cache-biased experiment. System swap increased; MLX allocation is not total memory.
+- Real tool-free HTTP pipeline: first token 1.998 s, first segment 2.941 s, first generated audio 4.074 s, chat complete 4.323 s, total generation 4.945 s. Generated audio overlapped chat; audible latency remains unmeasured and the three-second goal is not established.
+- Warm-up-disabled experiment: init 0.587 s, first English 2.976 s, first Hindi 0.468 s, repeated English 0.143 s. See [VOICE.md](VOICE.md) for full methodology/limits and user-provided earlier component measurements context.
+- User reported high-quality standalone Bella and successful initial Hindi/Hinglish samples. Integrated microphone/playback/continuous/tool-safety, recovery, and sustained resource acceptance remain pending. No microphone capture or actual application launch was performed by automated checks.
+- Real HTTP injected cancellation recovered in 0.050 s with zero remaining voice threads; a subsequent chat completed. Physical playback/microphone interruption still needs manual acceptance.
+- Stable API/package metadata remains 0.4.0. Do not merge or tag v0.6.0 until user acceptance. Phase 5 remains deferred and Phase 7 is not started.
 
 ## Phase 4 implementation status
 - Added a standard-library SQLite database with transactional `user_version` migrations, foreign keys, a serialized connection, and restrictive file/directory permissions where supported.
@@ -26,7 +31,7 @@ roadmap milestone remains 30%. No Phase 5 work is removed or changed.
 
 ## Phase 4 verification history
 - Existing Phase 1–3 behavior remains covered by regression tests.
-- Phase 4 automated tests currently pass: 53 passed, one Starlette/httpx deprecation warning.
+- Phase 4 closeout tests: 53 passed, one Starlette/httpx deprecation warning.
 - Tests cover repeatable migrations, restrictive permissions, conversation persistence across app recreation, ordering/model/reset/delete, notes CRUD/search and injection-safe queries, learning progress and cascade integrity, memory enable/edit/delete/context behavior, auth, and failed/aborted turn handling.
 - Full suite, compile checks and `git diff --check` passed during closeout.
 - User confirmed MacBook manual verification: bearer authentication works; unauthenticated personal APIs return 401; note creation returns 201; the original note retains its UUID, content and timestamps after a full backend restart.

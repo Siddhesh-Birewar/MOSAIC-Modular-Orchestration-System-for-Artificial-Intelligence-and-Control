@@ -19,3 +19,8 @@
 - **Phase 5 deferred, Phase 6 next:** preserve phase numbering and frontend prototypes while completing backend voice first. Stable release remains 0.4.0 pending voice manual acceptance.
 - **Local speech adapters:** Whisper.cpp for existing approved multilingual weights; installed macOS voices provide an initial TTS adapter without speech model downloads. Kokoro/IndicF5 evaluation is in VOICE.md.
 - **Half-duplex voice and explicit activation:** capture never overlaps playback; `/voice on` explicitly enables repeated listening. Ctrl+C is the supported interruption path. All voice text passes through the existing authenticated conversation/tool pipeline and typed approval.
+
+- **Persistent isolated neural worker:** retain the existing Python 3.12 MLX environment; private bounded pipes and a per-model file lock avoid an unauthenticated service or a model process per sentence. Enforce offline assets rather than completing a partially downloaded repository.
+- **Explicit speech safety modes:** default tools-on waits for final orchestration; explicit tools-off mode permits sentence streaming. Failed tools produce deterministic noncompletion speech, and raw thinking/tool JSON never enters playback.
+- **Reasoning controls from installed metadata:** validate low/medium/high against Ollama /api/show; default omits think. Avoid unreliable automatic reasoning/model switches.
+- **Preserve actual cached precision:** BF16 in a repository label does not override F32 tensor metadata. Do not silently convert shared weights; report loaded dtypes and measured resource use.
