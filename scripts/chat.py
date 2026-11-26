@@ -51,6 +51,8 @@ class MosaicCLI:
         self.model: str | None = None
         self.show_metrics = False
         self.voice_session = None
+        self.last_metrics = {}
+        self.last_stream_failed = False
 
     def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
@@ -72,7 +74,7 @@ class MosaicCLI:
         self.output(f"Started conversation {self.conversation_id} ({self.model}).")
 
     def help(self) -> None:
-        self.output("Commands: /help /new /clear /models /model MODEL /status /metrics /exit /voice [on|off] /mic [INDEX] /voices /voice-status")
+        self.output("Commands: /help /new /clear /models /model MODEL /status /metrics /exit /voice [on|off] /mic [INDEX] /voices /voice-status /language /tts /speed /reasoning /voice-tools")
 
     def command(self, text: str) -> bool:
         parts = text.strip().split(maxsplit=1)
@@ -114,7 +116,7 @@ class MosaicCLI:
         elif name == "/metrics":
             self.show_metrics = not self.show_metrics
             self.output(f"Metrics {'on' if self.show_metrics else 'off'}.")
-        elif name in {"/voice", "/mic", "/voices", "/voice-status"}:
+        elif name in {"/voice", "/mic", "/voices", "/voice-status", "/language", "/tts", "/speed", "/reasoning", "/voice-tools"}:
             self._voice_command(name, argument)
         elif name.startswith("/"):
             self.output("Unknown command. Use /help.")
@@ -137,8 +139,44 @@ class MosaicCLI:
                     speed=float(os.getenv("MOSAIC_TTS_SPEED", "1")),
                     event_sink=lambda event: self.output(f"Voice: {event.state}") if event.kind == "state" else None,
                 )
+                self.voice_session.provider = os.getenv("MOSAIC_TTS_PROVIDER", "kokoro")
+                self.voice_session.reasoning = os.getenv("MOSAIC_VOICE_REASONING", "default")
+                self.voice_session.tools = os.getenv("MOSAIC_VOICE_TOOLS", "1") == "1"
             session = self.voice_session
-            if name == "/mic":
+            if name in {"/language", "/tts", "/speed", "/reasoning", "/voice-tools"}:
+                if name == "/language":
+                    if argument and argument not in {"auto","en","hi","hinglish"}:
+                        raise VoiceError("Language: auto, en, hi, hinglish")
+                    if argument:
+                        session.language = argument
+                elif name == "/tts":
+                    if argument and argument not in {"kokoro","macos"}:
+                        raise VoiceError("TTS: kokoro or macos")
+                    if argument:
+                        session.provider = argument
+                        session.voice = None
+                        if argument == "kokoro":
+                            response = self.client.post(f"{self.backend_url}/voice/warmup",headers=self._auth_headers())
+                            response.raise_for_status()
+                            self.output("Neural voice worker is ready.")
+                elif name == "/speed" and argument:
+                    value = float(argument)
+                    if not 0.5 <= value <= 2:
+                        raise VoiceError("Speed must be 0.5 to 2")
+                    session.speed = value
+                elif name == "/reasoning":
+                    if argument and argument not in {"default","low","medium","high"}:
+                        raise VoiceError("Reasoning: default, low, medium, high (model support checked by backend)")
+                    if argument:
+                        session.reasoning = argument
+                elif name == "/voice-tools":
+                    if argument and argument not in {"on","off"}:
+                        raise VoiceError("Usage: /voice-tools on|off")
+                    if argument:
+                        session.tools = argument == "on"
+                self.output(json.dumps({"language":session.language,"provider":session.provider,
+                    "speed":session.speed,"reasoning":session.reasoning,"tools":session.tools}))
+            elif name == "/mic":
                 if argument:
                     session.device.microphone = int(argument)
                     self.output("Microphone selected.")
@@ -146,11 +184,14 @@ class MosaicCLI:
                     self.output(json.dumps(session.device.devices(), ensure_ascii=False))
             elif name in {"/voices", "/voice-status"}:
                 path = "/voice/voices" if name == "/voices" else "/voice/status"
-                response = self.client.get(f"{self.backend_url}{path}", headers=self._auth_headers())
+                response = self.client.get(f"{self.backend_url}{path}" + (f"?provider={session.provider}" if name == "/voices" and session.provider else ""), headers=self._auth_headers())
                 response.raise_for_status()
                 self.output(json.dumps(response.json(), ensure_ascii=False))
                 if name == "/voice-status":
-                    self.output(json.dumps(session.metrics))
+                    self.output(json.dumps({"language":session.language,"provider":session.provider,
+                        "voice":session.voice or "automatic: af_bella/en, hf_alpha/hi/hinglish",
+                        "speed":session.speed,"reasoning":session.reasoning,"tools":session.tools,
+                        "metrics":session.metrics,"transport_releasing":any(t.is_alive() for t in session.pending_threads)}))
             elif argument == "off":
                 session.continuous = False
                 self.output("Voice off.")
@@ -166,18 +207,23 @@ class MosaicCLI:
         except httpx.HTTPError:
             self.output("Voice backend unavailable; check configuration and authentication.")
 
-    def send_message(self, message: str) -> str:
+    def send_message(self, message: str, *, speech_sink=None, voice_options=None, cancelled=None, stream_ready=None, token_sink=None) -> str:
+        self.last_stream_failed = True
         answer: list[str] = []
         completed = False
         response = self.client.stream(
             "POST",
             f"{self.backend_url}/chat/stream",
-            json={"message": message, "conversation_id": self.conversation_id},
+            json={"message": message, "conversation_id": self.conversation_id, **(voice_options or {})},
             headers=self._auth_headers(),
         )
         with response as stream:
             stream.raise_for_status()
+            if stream_ready:
+                stream_ready(stream)
             for event, raw_data in parse_sse(stream.iter_lines()):
+                if cancelled is not None and cancelled.is_set():
+                    return ""
                 try:
                     data = json.loads(raw_data)
                 except json.JSONDecodeError:
@@ -186,15 +232,25 @@ class MosaicCLI:
                 if event == "token":
                     answer.append(data.get("text", ""))
                     self.write(data.get("text", ""))
+                    if token_sink:
+                        token_sink(data)
+                elif event == "speech_segment" and speech_sink:
+                    if data.get("safety") not in {"tool_free", "completed_orchestration"}:
+                        raise ValueError("Uncommitted speech event")
+                    speech_sink(data)
                 elif event == "approval_required":
+                    if voice_options and not voice_options.get("voice_tools", True):
+                        raise ValueError("Unexpected approval on tool-free voice turn")
                     self._handle_approval(data)
                 elif event == "error":
                     self.output(f"Request failed: {data.get('detail', 'unknown error')}")
                 elif event == "done":
                     completed = True
+                    self.last_metrics = data.get("metrics", {})
                     if self.show_metrics:
                         self.output(f"Metrics: {json.dumps(data.get('metrics', {}), sort_keys=True)}")
             self.output("")
+        self.last_stream_failed = not completed
         return "".join(answer) if completed else ""
 
     def _handle_approval(self, data: dict[str, Any]) -> None:

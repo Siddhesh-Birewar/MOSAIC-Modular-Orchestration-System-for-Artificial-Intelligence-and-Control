@@ -14,6 +14,10 @@ class VoiceError(RuntimeError):
     """A safe error message suitable for presentation to the local user."""
 
 
+class VoiceInputError(VoiceError):
+    """Invalid speech input; does not indicate a worker availability failure."""
+
+
 @dataclass(frozen=True)
 class Audio:
     pcm: bytes

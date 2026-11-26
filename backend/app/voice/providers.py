@@ -67,7 +67,7 @@ async def run_local(*arguments: str, timeout: float = 120, input_data: bytes | N
 
 class WhisperCpp:
     def __init__(self, executable: str, model: str) -> None:
-        self.executable, self.model = executable, model
+        self.executable, self.model = os.path.expanduser(executable), os.path.expanduser(model)
 
     @property
     def ready(self) -> bool:

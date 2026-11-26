@@ -27,6 +27,7 @@ from app.tools.base import ToolContext
 from app.tools.executor import ToolExecutionError
 from app.api.tools import local_token_is_valid, require_local_token
 from app.api.personal_data import retrieve_memories
+from app.voice.text import Segmenter
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -205,6 +206,15 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
     tools_authorized = local_token_is_valid(request)
     conversation = await _resolve_chat(body, request)
     ollama: OllamaClient = request.app.state.ollama
+    think = None
+    if body.voice_mode and body.reasoning != "default":
+        try:
+            supported = await ollama.thinking_levels(conversation.model)
+        except OllamaError as exc:
+            raise _translate_error(exc) from exc
+        if body.reasoning not in supported:
+            raise HTTPException(status_code=422, detail="Selected reasoning mode is not advertised by the installed model")
+        think = body.reasoning
 
     async def events():
         started = time.monotonic()
@@ -216,11 +226,22 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
             async with request.app.state.inference_lock:
                 current = request.app.state.conversations.set_model(conversation.id, model)
                 messages = _messages(request, current, body.message, model)
+                if body.voice_mode:
+                    messages[0]["content"] += ("\nVoice conversation: answer naturally and concisely, without repeated introductions or decorative emojis. "
+                        "Use minimal formatting. Explain at length when the user requests it. Preserve teaching accuracy and tool safety.")
+                    messages[0]["content"] += f" Preferred response language: {body.voice_language}; honor explicit language requests in the current user message."
+                    if not body.voice_tools:
+                        messages[0]["content"] += " Tools are disabled for this turn. You cannot perform actions; never claim an action was performed."
+                speech = Segmenter()
+                speech_sequence = 0
+                spoken_chars = 0
                 await _prepare_model(ollama, model, request.app.state.settings.allowed_models)
                 definitions = (
                     [tool.ollama_definition() for tool in request.app.state.tool_registry.list()]
-                    if tools_authorized else []
+                    if tools_authorized and (not body.voice_mode or body.voice_tools) else []
                 )
+                tool_speech_blocked = False
+                application_launch_requested = False
                 tool_calls_used = 0
                 tool_execution_seconds = 0.0
                 final_metrics: dict[str, Any] = {}
@@ -231,9 +252,11 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                     if orchestration_remaining <= 0:
                         yield _sse("error", {"detail": "Orchestration time limit reached"})
                         return
+                    options = {"think":think} if think else {}
                     stream = ollama.stream_chat(
-                        model, messages, request.app.state.settings.keep_alive, tools=definitions
+                        model, messages, request.app.state.settings.keep_alive, tools=definitions, **options
                     )
+                    iteration_answer = []
                     calls = None
                     assistant_message = None
                     try:
@@ -243,7 +266,14 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                                     if first_chunk_at is None:
                                         first_chunk_at = time.monotonic()
                                     answer.append(chunk.content)
+                                    iteration_answer.append(chunk.content)
                                     yield _sse("token", {"text": chunk.content})
+                                    if body.voice_mode and not body.voice_tools:
+                                        for segment in speech.feed(chunk.content):
+                                            if spoken_chars + len(segment) <= 12000:
+                                                spoken_chars += len(segment)
+                                                speech_sequence += 1
+                                                yield _sse("speech_segment", {"sequence":speech_sequence, "text":segment, "safety":"tool_free"})
                                 if chunk.done:
                                     final_metrics = chunk.metrics or {}
                                     calls = chunk.tool_calls or []
@@ -258,7 +288,7 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                     if not calls:
                         completed = True
                         break
-                    if not tools_authorized:
+                    if not tools_authorized or (body.voice_mode and not body.voice_tools):
                         yield _sse("error", {"detail": "Tool execution requires authenticated CLI access"})
                         return
                     if (
@@ -330,6 +360,11 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                             result_data = {"status": "denied", "reason": "Approval expired or was rejected"}
                         except ToolExecutionError as exc:
                             result_data = {"status": "failed", "reason": exc.category}
+                        if result_data.get("status") != "completed":
+                            tool_speech_blocked = True
+                        elif tool_id == "applications_launch":
+                            # The launcher confirms submission, not that a GUI window opened.
+                            application_launch_requested = True
                         messages.append({
                             "role": "tool",
                             "tool_name": tool_id,
@@ -346,6 +381,18 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                 )
                 metrics.total_duration_seconds = round(time.monotonic() - started, 6)
                 request.app.state.conversations.append_turn(conversation, body.message, "".join(answer))
+                if body.voice_mode:
+                    final_speech = "".join(iteration_answer) if body.voice_tools else ""
+                    if body.voice_tools and tool_speech_blocked:
+                        final_speech = "The requested action was not completed. Details are available in the text response."
+                    elif body.voice_tools and application_launch_requested:
+                        final_speech = "The application launch request was sent. Check the application on your computer."
+                    for segment in speech.feed(final_speech, final=True):
+                        if spoken_chars + len(segment) <= 12000:
+                            spoken_chars += len(segment)
+                            speech_sequence += 1
+                            yield _sse("speech_segment", {"sequence":speech_sequence, "text":segment,
+                                "safety":"completed_orchestration" if body.voice_tools else "tool_free"})
                 yield _sse("done", {
                     "conversation_id": conversation.id,
                     "model": model,
@@ -353,6 +400,8 @@ async def stream_chat(body: ChatRequest, request: Request) -> StreamingResponse:
                     "tool_calls": tool_calls_used,
                 })
                 logger.info("Streaming chat completed")
+        except ValueError:
+            yield _sse("error", {"detail":"Voice segment buffer limit reached"})
         except ConversationNotFoundError:
             yield _sse("error", {"detail": "Conversation not found"})
         except asyncio.CancelledError:

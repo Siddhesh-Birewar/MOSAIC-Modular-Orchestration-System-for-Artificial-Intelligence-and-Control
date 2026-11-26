@@ -22,3 +22,6 @@ build/
 *.ggml
 ggml-*.bin
 voice-models/
+
+*.safetensors
+*.npz

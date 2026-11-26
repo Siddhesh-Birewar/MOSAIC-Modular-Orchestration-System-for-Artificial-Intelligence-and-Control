@@ -86,6 +86,12 @@ class OllamaClient:
             raise OllamaResponseError("Ollama response must be a JSON object")
         return payload
 
+    async def thinking_levels(self, model: str) -> list[str]:
+        payload = await self._request("POST", "/api/show", json={"model":model})
+        metadata = payload.get("thinking")
+        values = metadata.get("values", []) if isinstance(metadata, dict) else []
+        return [value for value in values if isinstance(value, str)] if isinstance(values,list) else []
+
     async def list_models(self) -> list[dict[str, Any]]:
         payload = await self._request("GET", "/api/tags")
         models = payload.get("models")
@@ -139,6 +145,7 @@ class OllamaClient:
         messages: list[dict[str, Any]],
         keep_alive: str = "5m",
         tools: list[dict[str, Any]] | None = None,
+        think: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         started = time.monotonic()
         accumulated_tool_calls: list[dict[str, Any]] = []
@@ -152,6 +159,8 @@ class OllamaClient:
                     "stream": True,
                     "keep_alive": keep_alive,
                 }
+                if think is not None:
+                    body["think"] = think
                 if tools:
                     body["tools"] = tools
                 async with client.stream("POST", f"{self.base_url}/api/chat", json=body) as response:
