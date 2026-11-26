@@ -102,3 +102,30 @@ These inspect work/history without resetting files. `git fetch origin` refreshes
 references without merging. Review tracked paths with `git ls-files`; ignored files can
 still be tracked if previously added. Follow [AGENTS.md](../../AGENTS.md) for commits,
 pushes, merges and tags. Phase 6 must remain draft until manual acceptance.
+
+
+## Voice reliability follow-up
+
+After exporting trusted `.env` values in the CLI terminal, these override capture defaults
+without editing the file:
+
+```sh
+export MOSAIC_VAD_THRESHOLD=0.010
+export MOSAIC_VAD_SILENCE_SECONDS=2.0
+export MOSAIC_TRANSCRIPT_PREVIEW=0
+backend/.venv/bin/python scripts/chat.py --backend http://127.0.0.1:8000
+```
+
+Use `/transcript-preview on` for local recognized-text display and confirmation; turn it
+off with `/transcript-preview off`. Invalid scripts remain rejected even with preview.
+`/language hi` and `/language hinglish` both force Whisper hi; `/language auto` detects.
+Preview is terminal-visible and may remain in scrollback, but creates no additional log.
+
+```sh
+backend/.venv/bin/python scripts/benchmark_neural_voice.py --llm --language-check --stress-rounds 4
+```
+
+This uses cached synthetic speech and existing Base, prints script counts without transcript
+contents, and runs 12 mixed TTS requests with partial short-LLM overlap. It does not open
+hardware, test full wall-time playback or establish accuracy. See [VOICE.md](../VOICE.md)
+for the exact manual sequence, metric clocks and safe diagnostic fields to report.

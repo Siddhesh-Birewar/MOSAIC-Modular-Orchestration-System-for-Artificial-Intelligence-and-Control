@@ -55,3 +55,40 @@ sequence of edits inside a commit. No private conversation text is reproduced he
 - No runtime or frontend change was needed for this documentation addition. Phase 6 remains
   ready for the manual checklist in [VOICE.md](../VOICE.md), not complete. Continue recording
   implementation changes, failed checks and accepted manual results here as they occur.
+
+
+## 2026-11-26 — Voice reliability follow-up (current verification)
+
+- Started from clean synchronized `5a0a74e` on the same Phase 6 branch/draft PR #4.
+  Read policy, project state, voice guide, providers, worker, streaming and tests.
+- Traced hi to Whisper's `-l hi`; Hinglish incorrectly used auto and now uses hi.
+  Verified multilingual Base metadata/checksum. Synthetic Hindi still failed script checks;
+  CPU/no-flash/greedy and a neutral prompt did not establish a fix. A wider-beam trial
+  failed without a diagnosed cause. Adopted none of these tunings; no model was downloaded.
+- Added rejection before chat plus disabled-by-default local preview/confirmation rather
+  than silently changing recognized meaning. Hindi accuracy remains an acceptance blocker.
+- Found generic exception handling hid worker causes and stopped healthy workers after
+  rejected admission. Added safe categories/stages/numeric counters, retained-worker
+  protection on admission/queued timeout and bounded PCM/cache cleanup. Kept memory limits.
+  The owner's intermittent failure remains unconfirmed.
+- Added current-turn language instructions and one bounded tools-disabled rewrite of the
+  unspoken tail. Tests prove actions/history are not repeated. Live hi/en/hinglish after
+  fake Urdu history each produced two correct-script segments without repair/tool calls.
+- Adopted the owner's VAD 0.010 / 2.0 s defaults with sustained onset, bounded waits and
+  trailing-silence trimming. Actual `.env` unchanged. Fixed null first-audio metrics and
+  separated VAD-end/capture/visible-token/eligible-speech/generated-audio/playback clocks.
+- Two silent mixed batches each generated 12 segments / 68.3 s audio in seconds of wall
+  time, with one worker and no failure. Only the beginning overlaps the short LLM request.
+  [Benchmark history](BENCHMARK_HISTORY.md) preserves both runs, failed trials and limits.
+- Two initial test failures were test-assumption errors: a fake child marked dead before
+  admission correctly restarted, and VAD onset pre-roll made expected duration 1.96 s,
+  rather than 1.8 s. Fixed the fixture to exit during a request and corrected the duration;
+  neither establishes a cause for the owner's crash.
+- Final suite: 160 passed, one optional integration skipped; separate real cached-model
+  integration: 1 passed. One existing Starlette/httpx warning remains. No frontend,
+  Phase 7, dependency installation, release merge or milestone tag was introduced.
+- Positive memory-floor validation prevents zero/negative configuration from disabling
+  admission. Shutdown reaps a child that exits between the return-code check and kill.
+  Compile/whitespace, 167 local links, 42 linked code symbols and five 20-topic phase-guide
+  checks passed. Credential-pattern/tracked-artifact and private-path review passed;
+  no credentials, personal transcripts, recordings, databases or models were added to Git.

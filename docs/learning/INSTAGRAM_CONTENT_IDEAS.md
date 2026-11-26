@@ -47,3 +47,19 @@ Before publication, reproduce the example, check the current symbol names and mi
 status, show units/sample limits for every performance claim, and disclose reconstructed
 explanations. Phase 5 is deferred and Phase 6 is still under acceptance; neither is a
 completed showcase release.
+
+
+Reliability follow-up ideas:
+
+- **The model says Hindi, but the text is not Devanagari.** Show synthetic script counts,
+  selected-versus-detected metadata and rejection. Do not claim the recognition issue is fixed.
+- **The benchmark that failed is useful evidence.** Compare CPU/no-flash/greedy/prompt
+  trials and explain why no unproven tuning was adopted. Use aggregate synthetic results.
+- **One Python dictionary method hid a metric.** Reproduce `setdefault` on an existing
+  None, then connect a corrected assignment to an actual playback-start event.
+- **Why waiting longer can make voice feel better.** Explain a natural 1.2 s pause,
+  VAD hangover and the extra endpoint latency, with simulated frames.
+- **A killed worker does not prove out-of-memory.** Contrast admission, exit signal and
+  intentional cleanup; demonstrate safe structured diagnostics without raw exception text.
+- **Correcting an answer must not launch an app twice.** Show the no-tools recovery test
+  and one persisted turn. Language fluency still needs human review.

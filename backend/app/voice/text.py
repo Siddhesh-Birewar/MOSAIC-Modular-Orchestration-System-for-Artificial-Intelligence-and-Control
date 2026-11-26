@@ -55,6 +55,7 @@ def normalize_speech(text: str) -> str:
 class SpeechSegment:
     text: str
     language: str
+    source_has_devanagari: bool = False
 
 
 class Segmenter:
@@ -106,15 +107,16 @@ class Segmenter:
             sentence, self.buffer = self.buffer[:cut], self.buffer[cut:]
             spoken = normalize_speech(sentence)
             route = language_for(spoken,self.language)
+            source_has_devanagari = bool(re.search('[\u0900-\u097f]',spoken))
             # Word-bounded small Hindi chunks mitigate upstream phonemizer truncation.
             while len(spoken) > self.limit:
                 position = spoken.rfind(' ', 0, self.limit + 1)
                 if position < 1:
                     position = self.limit
-                result.append(SpeechSegment(spoken[:position].strip(),route))
+                result.append(SpeechSegment(spoken[:position].strip(),route,source_has_devanagari))
                 spoken = spoken[position:].strip()
             if spoken:
-                result.append(SpeechSegment(spoken,route))
+                result.append(SpeechSegment(spoken,route,source_has_devanagari))
         return result
 
     def feed(self, text: str, final: bool = False) -> list[str]:

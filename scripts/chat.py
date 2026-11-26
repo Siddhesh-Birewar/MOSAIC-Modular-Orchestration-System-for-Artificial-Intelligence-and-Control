@@ -74,7 +74,7 @@ class MosaicCLI:
         self.output(f"Started conversation {self.conversation_id} ({self.model}).")
 
     def help(self) -> None:
-        self.output("Commands: /help /new /clear /models /model MODEL /status /metrics /exit /voice [on|off] /mic [INDEX] /voices /voice-status /language /tts /speed /reasoning /voice-tools")
+        self.output("Commands: /help /new /clear /models /model MODEL /status /metrics /exit /voice [on|off] /mic [INDEX] /voices /voice-status /language /tts /speed /reasoning /voice-tools /transcript-preview [on|off]")
 
     def command(self, text: str) -> bool:
         parts = text.strip().split(maxsplit=1)
@@ -116,7 +116,7 @@ class MosaicCLI:
         elif name == "/metrics":
             self.show_metrics = not self.show_metrics
             self.output(f"Metrics {'on' if self.show_metrics else 'off'}.")
-        elif name in {"/voice", "/mic", "/voices", "/voice-status", "/language", "/tts", "/speed", "/reasoning", "/voice-tools"}:
+        elif name in {"/voice", "/mic", "/voices", "/voice-status", "/language", "/tts", "/speed", "/reasoning", "/voice-tools", "/transcript-preview"}:
             self._voice_command(name, argument)
         elif name.startswith("/"):
             self.output("Unknown command. Use /help.")
@@ -131,8 +131,8 @@ class MosaicCLI:
             if self.voice_session is None:
                 microphone = os.getenv("MOSAIC_MICROPHONE", "")
                 device = AudioDevice(int(microphone) if microphone else None,
-                                     float(os.getenv("MOSAIC_VAD_THRESHOLD", "0.015")),
-                                     float(os.getenv("MOSAIC_VAD_SILENCE_SECONDS", "0.8")))
+                                     float(os.getenv("MOSAIC_VAD_THRESHOLD", "0.010")),
+                                     float(os.getenv("MOSAIC_VAD_SILENCE_SECONDS", "2.0")))
                 self.voice_session = VoiceSession(
                     self, device, language=os.getenv("MOSAIC_VOICE_LANGUAGE", "auto"),
                     voice=os.getenv("MOSAIC_TTS_VOICE") or None,
@@ -142,8 +142,15 @@ class MosaicCLI:
                 self.voice_session.provider = os.getenv("MOSAIC_TTS_PROVIDER", "kokoro")
                 self.voice_session.reasoning = os.getenv("MOSAIC_VOICE_REASONING", "default")
                 self.voice_session.tools = os.getenv("MOSAIC_VOICE_TOOLS", "1") == "1"
+                self.voice_session.transcript_preview = os.getenv("MOSAIC_TRANSCRIPT_PREVIEW","0") == "1"
             session = self.voice_session
-            if name in {"/language", "/tts", "/speed", "/reasoning", "/voice-tools"}:
+            if name == "/transcript-preview":
+                if argument not in {"","on","off"}:
+                    raise VoiceError("Usage: /transcript-preview on|off")
+                if argument:
+                    session.transcript_preview = argument == "on"
+                self.output("Transcript preview " + ("on (local terminal; confirmation required)." if session.transcript_preview else "off."))
+            elif name in {"/language", "/tts", "/speed", "/reasoning", "/voice-tools"}:
                 if name == "/language":
                     if argument and argument not in {"auto","en","hi","hinglish"}:
                         raise VoiceError("Language: auto, en, hi, hinglish")
@@ -191,6 +198,7 @@ class MosaicCLI:
                     self.output(json.dumps({"language":session.language,"provider":session.provider,
                         "voice":session.voice or "automatic: af_bella/en, hf_alpha/hi/hinglish",
                         "speed":session.speed,"reasoning":session.reasoning,"tools":session.tools,
+                        "transcript_preview":session.transcript_preview,
                         "metrics":session.metrics,"transport_releasing":any(t.is_alive() for t in session.pending_threads)}))
             elif argument == "off":
                 session.continuous = False
@@ -238,6 +246,8 @@ class MosaicCLI:
                     if data.get("safety") not in {"tool_free", "completed_orchestration"}:
                         raise ValueError("Uncommitted speech event")
                     speech_sink(data)
+                elif event == "voice_warning":
+                    self.output("Voice language mismatch: response-only correction attempted; tools are not repeated.")
                 elif event == "approval_required":
                     if voice_options and not voice_options.get("voice_tools", True):
                         raise ValueError("Unexpected approval on tool-free voice turn")

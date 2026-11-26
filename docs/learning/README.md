@@ -61,3 +61,9 @@ the intended revision, verify command working directories, and attach evidence t
 and performance claims. Review for secrets/private content. Keep incomplete acceptance
 items visible. Learning documentation supplements the existing milestone workflow;
 it never authorizes a merge or changes phase completion by itself.
+
+
+The Phase 6 reliability follow-up adds measured failed Hindi-recognition trials, safe
+structured diagnostics, bounded response-only correction, VAD/metric explanations and
+new rebuilding exercises. The original intermittent worker stop remains unconfirmed;
+Hindi recognition accuracy and physical/sustained use still block acceptance.

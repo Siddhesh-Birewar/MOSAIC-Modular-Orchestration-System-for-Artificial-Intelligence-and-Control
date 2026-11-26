@@ -13,6 +13,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from app.voice.audio import encode_wav
+from app.voice.language import script_counts
 
 MAX_LINE = 8192
 MAX_RESPONSE = 3_000_000
@@ -23,8 +24,11 @@ def validate_request(value):
     if not isinstance(value, dict) or set(value) != {'id','text','voice','speed'}:
         raise ValueError('Invalid IPC request')
     if (type(value['id']) is not int or not isinstance(value['text'],str) or not 0 < len(value['text']) <= 500
-        or value['voice'] not in VOICES or type(value['speed']) not in (float,int) or not 0.5 <= value['speed'] <= 2):
+        or not isinstance(value['voice'],str) or value['voice'] not in VOICES
+        or type(value['speed']) not in (float,int) or not 0.5 <= value['speed'] <= 2):
         raise ValueError('Invalid IPC request')
+    if script_counts(value['text'])['unsupported'] or (value['voice']=='hf_alpha' and len(value['text'])>160):
+        raise ValueError('Invalid IPC speech script or Hindi segment length')
     return value
 
 
@@ -58,20 +62,27 @@ def main() -> None:
         def generate(text, voice, speed):
             started = time.monotonic()
             pcm = []
+            size = 0
             rate = None
             for part in model.generate(text, voice=voice, speed=speed, lang_code=VOICES[voice]):
                 rate = part.sample_rate
                 values = np.asarray(part.audio).reshape(-1)
-                pcm.append((np.clip(values, -1, 1) * 32767).astype('<i2').tobytes())
+                block = (np.clip(values, -1, 1) * 32767).astype('<i2').tobytes()
+                size += len(block)
+                if size > 1_900_000:
+                    raise OverflowError('Audio limit')
+                pcm.append(block)
             raw = b''.join(pcm)
             if rate != 24000 or not raw or len(raw) > 1_900_000:
-                raise RuntimeError('Invalid generated audio')
+                raise OverflowError('Invalid generated audio')
             return encode_wav(raw, rate), {'synthesis_seconds': time.monotonic()-started,
-                'audio_seconds':len(raw)/(rate*2), 'sample_rate':rate, 'mlx_peak_bytes':mx.get_peak_memory()}
+                'audio_seconds':len(raw)/(rate*2), 'sample_rate':rate, 'mlx_peak_bytes':mx.get_peak_memory(),
+                'mlx_active_bytes':mx.get_active_memory(), 'mlx_cache_bytes':mx.get_cache_memory()}
         warm = os.environ.get('MOSAIC_NEURAL_WARMUP', '1') == '1'
         if warm:
             generate('Ready.', 'af_bella', 1)
             generate('नमस्ते।', 'hf_alpha', 1)
+        mx.clear_cache()
         def send(value):
             encoded = json.dumps(value, separators=(',', ':'))
             if len(encoded) > MAX_RESPONSE:
@@ -87,14 +98,25 @@ def main() -> None:
             if len(line) > MAX_LINE or not line.endswith(b'\n'):
                 break
             identity = None
+            stage = 'validation'
             try:
                 value = json.loads(line)
-                identity = value['id']
+                identity = value.get('id') if isinstance(value,dict) and type(value.get('id')) is int else None
                 validate_request(value)
+                stage = 'synthesis'
                 audio, metrics = generate(value['text'], value['voice'], value['speed'])
                 send({'id':identity,'audio':base64.b64encode(audio).decode('ascii'),'metrics':metrics})
+            except MemoryError:
+                send({'id':identity,'error':{'category':'memory_limit'}})
+            except OverflowError:
+                send({'id':identity,'error':{'category':'audio_limit'}})
+            except (ValueError, TypeError, KeyError):
+                send({'id':identity,'error':{'category':'invalid_ipc' if stage == 'validation' else 'synthesis_failure'}})
             except Exception:
-                send({'id':identity,'error':'Neural synthesis failed; inspect offline assets and voice configuration'})
+                send({'id':identity,'error':{'category':'synthesis_failure'}})
+            finally:
+                # Release unused allocator blocks, not live model/pipeline parameters.
+                mx.clear_cache()
 
 
 if __name__ == '__main__':

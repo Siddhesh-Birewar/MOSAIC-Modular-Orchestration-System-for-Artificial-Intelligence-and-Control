@@ -15,6 +15,8 @@ Text interaction needs a local voice path with usable latency. Loading TTS for e
 sentence wastes initialization time. Speaking raw streamed text can accidentally expose
 reasoning or announce an action before permission/execution succeeds.
 
+The reliability follow-up also addresses wrong-script recognition, older history biasing the response language, hidden worker failure causes and missing first-audio metrics. The existing Base/runtime still fails synthetic Hindi; no accurate-recognition claim is made.
+
 ## 2. Why necessary
 
 Natural spoken interaction must combine speech recognition, model reasoning, safe tools,
@@ -84,7 +86,9 @@ management and regression coverage. Silent HTTP experiments exposed cancellation
 socket shutdown and remembered cancellation were added. `fd37407` fixed per-sentence
 language stability. `a77185c` recorded real benchmarks/acceptance limits. The journal and
 error record distinguish these facts from reconstructed explanations of internal steps.
-The current documentation update adds learning records without changing runtime behavior.
+The earlier learning-record addition changed no runtime behavior.
+
+Current verified sequence: trace CLI/API/Whisper language arguments; verify existing model hash/metadata; reproduce script failures; compare CPU/no-flash/greedy/neutral-prompt settings; adopt none without evidence; fix lifecycle/metric bugs; add gates, bounded correction and VAD tests; run two mixed synthesis batches and live response-language probes. No model/dependency replacement or frontend work occurred.
 
 ## 10. Important source
 
@@ -101,6 +105,8 @@ The current documentation update adds learning records without changing runtime 
 - [intelligence.py](../../../backend/app/api/intelligence.py): `stream_chat` speech eligibility.
 - [voice.py](../../../scripts/voice.py): `AudioDevice.record/play`, `VoiceSession._reply/once`.
 - [chat.py](../../../scripts/chat.py): `MosaicCLI._voice_command/send_message` and SSE.
+
+New source: [diagnostics.py](../../../backend/app/voice/diagnostics.py), `VoiceDiagnosticError`; [language.py](../../../backend/app/voice/language.py), `script_counts`, `language_issue`, `resolve_language`, `voice_instruction`; [response.py](../../../backend/app/voice/response.py), `repair_response`. New regression file: [test_voice_reliability.py](../../../backend/tests/test_voice_reliability.py).
 
 ## 11. Communication and state
 
@@ -130,6 +136,8 @@ choose explicit settings. `/voice-tools off` permits tool-free streaming; `/voic
 restores action orchestration. `/voice` captures one utterance; `/voice on` repeats;
 Ctrl+C interrupts. `/mic` lists devices; `/tts macos` explicitly selects native speech.
 
+Use `/transcript-preview on` for an optional local recognized-text/language display and confirmation, off by default. Hindi/Hinglish both force `-l hi`; preview does not bypass invalid-script rejection. The exact capture overrides and mixed benchmark commands are in [command reference](../COMMAND_REFERENCE.md).
+
 ## 13. Errors and solutions
 
 The cached snapshot lacked unrelated files; required local assets are validated without
@@ -139,6 +147,8 @@ remaining pronunciation limits documented. Cancellation needed own-socket shutdo
 cross-thread response close and a remembered-UUID gate for late synthesis. An idle-task
 cancellation race needed cancellation-safe gathering. Full explanations and test pointers:
 [error record](../ERRORS_AND_SOLUTIONS.md).
+
+The reliability review found generic handling killed healthy workers on rejected admission, Hinglish used auto, and `setdefault` preserved a null first-audio field. Fixed these without removing memory limits. Wrong-script Base recognition persisted across decoder/backend trials and is rejected before chat; the original intermittent worker failure remains unconfirmed. [Error history](../ERRORS_AND_SOLUTIONS.md) separates proven causes from unknowns.
 
 ## 14. Actual experiments
 
@@ -156,6 +166,8 @@ Conditions, units, owner-reported preliminary results, memory counters and cavea
 in [benchmark history](../BENCHMARK_HISTORY.md). Concurrent <0.5 s TTS target was missed;
 ideal <3 s audible response and sustained acceptance remain unverified.
 
+Current silent repeats each generated 12 mixed segments / 68.3 s in one worker without failure. The final run had fully overlapping first-six TTS times 0.568–0.728 s / RTF 0.1081–0.1364, and English STT 0.330/0.229 s. Later TTS outlasted the short LLM request; this is not 68.3 s of sustained wall-time load. Forced-hi/auto recognition still failed script checks. Live response-layer hi/en/hinglish probes passed after fake Urdu history with no repair/tools. See [full results and failed trials](../BENCHMARK_HISTORY.md).
+
 ## 15. Security
 
 Voice routes require auth; clients accept loopback backend URLs. Fixed trusted executable
@@ -169,9 +181,11 @@ Tools-on excludes provisional text and speaks deterministic noncompletion notice
 failed/denied actions. App launch success means a launch request was sent, not verified
 GUI opening. Spoken commands cannot approve actions; typed per-request consent remains.
 
+Optional preview escapes terminal controls and creates no extra log; scrollback can retain it. Script mismatch stops recognition before chat. Response correction runs once without tools or history writes; already eligible speech is not replayed. Diagnostics contain only fixed categories/stages/numeric data. Alphabet validation cannot prove meaning or rewrite equivalence.
+
 ## 16. Testing
 
-**Current documentation-update run:** 116 deterministic tests passed, one optional
+**Earlier learning-documentation run:** 116 deterministic tests passed, one optional
 integration skipped, one existing Starlette/httpx warning. **Previously executed and
 recorded in a77185c:** real cached-model integration: 1 passed, same PID reused offline for
 English/Hindi, proper shutdown. It was not rerun for this prose-only update.
@@ -183,13 +197,17 @@ speech safety, playback ordering/cancellation and late-registration cancellation
 Earlier persistence, auth and tool boundary suites remain included. Mocks cannot verify
 physical sound or pronunciation; use the [manual checklist](../../VOICE.md).
 
+Current reliability suite: **160 passed, one optional integration skipped**, one existing warning. Separate real cached-model test: **1 passed**. New tests cover safe diagnostic categories, healthy-worker preservation, language forwarding, preview/rejection, history-language override, bounded repair/no action replay, VAD pauses/noise/caps and first-playback metrics. They do not establish physical audio quality.
+
 ## 17. Git and milestones
 
-Branch `feature/phase-6-voice-intelligence`; last implementation evidence commit `a77185c`.
+Branch `feature/phase-6-voice-intelligence`; earlier neural-upgrade evidence commit `a77185c`.
 [PR #4](https://github.com/Siddhesh-Birewar/MOSAIC-Modular-Orchestration-System-for-Artificial-Intelligence-and-Control/pull/4)
 is open/draft. Commits above are published work-in-progress, not a released phase. No
 v0.6.0 tag or merge before owner acceptance. Stable metadata remains 0.4.0. Future changes
 must follow the unchanged milestone gates plus learning-document verification.
+
+This follow-up continues from learning commit `5a0a74e` on the same branch/draft PR. Publication is work in progress; no merge, completion tag or roadmap increment is authorized by these tests alone.
 
 ## 18. Limitations and outstanding acceptance
 
@@ -200,6 +218,8 @@ waits longer by design; tool-free speech already played cannot be retracted on a
 failure. No acoustic barge-in, full-duplex, wake word, echo cancellation or aligned mouth
 timings. The measured concurrent workload missed one latency goal and increased swap.
 
+The existing verified Base artifact/runtime produces Roman or unsupported-script Hindi even with forced hi. CPU/no-flash/greedy/neutral-prompt trials did not establish a fix. Recognition quality remains a manual acceptance blocker; safe rejection and typed input are the available paths. Two short synthesis batches do not diagnose the earlier worker stop. VAD hangover costs latency, and energy alone still admits sustained background noise.
+
 ## 19. Rebuilding exercises
 
 Use a fake synthesizer in a separate scratch project: split incremental text without
@@ -209,9 +229,13 @@ assert nothing stale plays next turn. Build a JSONL echo worker with exact schem
 size limits before loading any real model. Recompute RTF from the recorded measurements.
 Do not download models, change production allowlists or open microphones automatically.
 
+Rebuild the null-metric bug with a dictionary and `setdefault`. Simulate a memory rejection separately from a process crash and a cancelled queued waiter; prove the active worker survives rejected admission. Feed Roman/unsupported-script Hindi to a gate and show no chat write occurs. Add one tool-free output correction and assert one tool execution and one original turn only.
+
 ## 20. Educational content
 
 Teach persistent workers, backpressure, Hindi segmentation, safety-delayed speech or
 “first WAV is not first audible sound.” Show real numbers with methodology and missed
 targets. Explain BF16-name/F32-metadata as a reproducibility lesson. Use synthetic demos
 and label Phase 6 as pending acceptance; do not present it as a released voice assistant.
+
+New content ideas: selected language is not detected language; script validity is not meaning; failed experiments prevent unsafe tuning; why a signal does not prove OOM; natural pauses versus endpoint latency; and why correcting an answer must not execute an action twice.

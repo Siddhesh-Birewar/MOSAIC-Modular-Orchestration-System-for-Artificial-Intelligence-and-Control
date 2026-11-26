@@ -97,3 +97,70 @@ Reproduction commands and resource effects: [command reference](COMMAND_REFERENC
 For future runs record revision, hardware/runtime/model/dtype, input length/language,
 warm-up/cache state, load conditions, clock boundaries, units, sample count and failures.
 Use synthetic content; retain aggregate results only. Do not overwrite older results.
+
+## Phase 6 reliability investigation — 2026-11-26
+
+**Owner-reported manual evidence:** automatic-language concurrent worker stopped after
+11.175 s generated audio; sequential 42.35 s and English-concurrent 54.35 s succeeded;
+recovery succeeded. Root cause unconfirmed. Reported STT 0.464 s, warm LLM 19.504 tokens/s,
+concurrent RTF 0.108 and playback start 6.235 s; an earlier shorter turn started playback
+at 2.614 s but later failed. Sample inputs/clock boundaries are not fully recorded, so
+these are not controlled comparisons or stable acceptance guarantees.
+
+**Current silent mixed-language experiment, first run:**
+`scripts/benchmark_neural_voice.py --llm --language-check --stress-rounds 4`.
+Four cycles of English/Hindi/Hinglish generated 12 segments / 68.3 s of audio with one
+worker and no error. Entire generation series took seconds, not 68.3 s wall-time. Worker
+init 3.001 s; short warm TTS 0.128/0.170/0.138 s; English synthetic STT 0.313/0.233 s.
+Mixed requests 0.272–0.765 s, RTF 0.0565–0.1307. GPT-OSS 26.758 tokens/s alone versus
+14.998 during the mixed batch. First-token 7.353 s included 6.393 s load in the first run;
+concurrent first-token 1.266 s was warm. Swap 4,852,678,656→5,926,551,552 bytes;
+available memory 15,414,689,792→2,109,652,992 bytes. Peak MLX 2,074,070,674 bytes.
+These figures do not prove the earlier worker failure is fixed.
+
+**Repeat after adding warm-up cache release:** init 3.482 s; warm TTS
+0.130/0.175/0.141 s; English synthetic STT 0.330/0.229 s. Again 12 mixed segments / 68.3 s,
+same retained worker, no failure. All-request range 0.277–0.728 s, RTF 0.0563–0.1364.
+The first six requests, fully overlapping the short LLM run, took 0.568–0.728 s,
+RTF 0.1081–0.1364; later requests outlasted the LLM and must not all be called concurrent.
+LLM alone 26.197 tokens/s versus 14.916 with TTS; first token 8.273 s included 7.359 s load,
+versus 1.093 s warm during concurrency. Available memory 17,745,215,488→2,583,855,104 bytes;
+swap 5,511,512,064→5,477,957,632 bytes. MLX peak 2,074,070,674 bytes; final reported active
+MLX 328,955,344 bytes. Short-run cache/order/other-process effects remain confounders.
+The different swap direction is not proof of a cache-release improvement.
+
+**Existing Whisper Base investigation:** installed whisper-cli 1.9.6; model JSON reports
+multilingual Base, 51865 vocabulary, ftype 1. Local 147,951,465-byte file SHA-256 matches
+[the published artifact pointer](https://huggingface.co/ggerganov/whisper.cpp/raw/main/ggml-base.bin):
+`60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe`.
+No replacement was downloaded. Forced Hindi and auto both returned unsupported-script
+text while reporting hi (first run 0.339/0.379 s; repeat 0.324/0.378 s).
+
+Two known synthetic Hindi samples then tested decoder/backend variants:
+
+- Short greeting: default GPU 0.450 s, CPU 0.982 s, no flash 0.670 s, greedy 0.284 s.
+  All returned Roman text rather than Devanagari.
+- Technical Hindi sentence: default 0.396 s, CPU 1.616 s, no flash 0.498 s, greedy 0.306 s.
+  All returned unsupported-script text (37–38 unsupported letters, zero Devanagari).
+- An earlier neutral Devanagari prompt trial produced 38 Latin, 4 Devanagari and 2 unsupported
+  letters; it still failed validation. A wider beam 10/best-of 10 trial returned a provider
+  error; its cause/exit code were not captured. Neither setting was adopted.
+
+These results establish failure on the named synthetic samples, not a word-error-rate
+study, a diagnosis of all Base models, or proof that a particular larger model will solve
+the issue. Script counts do not measure meaning. No personal microphone sample or raw
+recognized text is retained here. New gates reject the failures rather than invent a fix.
+
+**Live response-layer probe:** real local GPT-OSS with an in-memory test database, fake
+prior Urdu history and tools off. Explicit hi/en/hinglish each produced 2 eligible segments,
+0 repairs, 0 tool calls and exactly one stored turn. Script counts respectively:
+120 Devanagari/0 Latin; 154 Latin/0 Devanagari; 99 Devanagari/22 Latin; unsupported 0 for all.
+HTTP request wall-times 5.238/2.348/4.321 s, including generation; no audio hardware was used.
+This verifies response routing on these samples, not recognition or pronunciation quality.
+
+**Current deterministic and integration evidence:** 160 tests pass with real-model test
+skipped by default; the explicit cached-model test passes separately. VAD tests retain
+a 1.2 s pause and low-amplitude speech, reject isolated spikes, cap initial wait 10 s and
+capture 30 s. A successful playback-start event replaces the initial null metric. These
+are simulated-device correctness checks, not physical audible benchmarks. No physical
+playback-start value or sustained thermal result was measured in this update.

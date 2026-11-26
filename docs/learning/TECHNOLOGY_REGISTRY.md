@@ -47,3 +47,11 @@ requirements, not proof of every installed version; see
 
 React/TypeScript/Tailwind/Tauri are dashboard plans/prototypes, not backend dependencies
 or completed Phase 5. Vector retrieval, RAG and Phase 7 are not implemented here.
+
+
+Reliability follow-up verified installed Whisper.cpp **1.9.6** and the existing Base file's
+147,951,465-byte size/SHA-256 against its published pointer. The artifact is multilingual;
+forced-language metadata does not prove independently detected language or correct script.
+CPU/no-flash/greedy/prompt trials did not establish a reliable Hindi fix. No dependency/model
+replacement was made. [Benchmark history](BENCHMARK_HISTORY.md) records the exact evidence.
+The new script/diagnostic/recovery modules use only existing dependencies and stdlib.

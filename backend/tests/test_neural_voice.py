@@ -214,6 +214,8 @@ def test_tool_mode_speech_waits_until_completed_orchestration():
     {'id':True,'text':'x','voice':'af_bella','speed':1},
     {'id':1,'text':'x'*501,'voice':'af_bella','speed':1},
     {'id':1,'text':'x','voice':'af_bella','speed':1,'command':'shell'},
+    {'id':1,'text':'یہ کیا ہے','voice':'hf_alpha','speed':1},
+    {'id':1,'text':'नमस्ते '*30,'voice':'hf_alpha','speed':1},
 ])
 def test_worker_ipc_rejects_invalid_inputs(value):
     from app.voice.neural_worker import validate_request
@@ -370,3 +372,95 @@ def test_chunks_of_one_mixed_sentence_keep_the_same_voice_language():
     assert len(chunks)>3
     assert all(chunk.language=='hinglish' for chunk in chunks)
     assert any(not any('\u0900'<=c<='\u097f' for c in chunk.text) for chunk in chunks)
+
+
+@pytest.mark.parametrize('mode,category,stage', [
+    ('exit','worker_exit','reply'), ('timeout','timeout','reply'),
+    ('json','invalid_ipc','reply'), ('identity','invalid_ipc','identity'),
+    ('audio','invalid_ipc','audio'), ('synthesis','synthesis_failure','synthesis'),
+    ('memory','memory_limit','synthesis'),
+])
+def test_worker_diagnostics_distinguish_safe_failure_causes(fake_worker, mode, category, stage):
+    from app.voice.diagnostics import VoiceDiagnosticError
+    model,spawned=fake_worker
+    async def check():
+        worker=KokoroWorker(sys.executable,str(model),timeout=.02)
+        await worker.warm()
+        child=spawned[0]
+        child.respond=False
+        if mode == 'exit':
+            def exit_on_write(packet):
+                child.returncode=-9; child.queue.put_nowait(b'')
+            child.stdin.write=exit_on_write
+        elif mode == 'json':child.queue.put_nowait(b'private transcript not JSON\n')
+        elif mode != 'timeout':
+            value={'id':2 if mode=='identity' else 1,'audio':'bad base64'}
+            if mode in {'synthesis','memory'}:
+                value['error']={'category':'memory_limit' if mode=='memory' else 'synthesis_failure',
+                                'private':'must never be returned'}
+            child.queue.put_nowait(json.dumps(value).encode()+b'\n')
+        with pytest.raises(VoiceDiagnosticError) as caught:
+            await worker.request({'text':'synthetic','voice':'af_bella','speed':1})
+        assert caught.value.category==category and caught.value.diagnostic['stage']==stage
+        assert 'private' not in str(worker.status())
+        if mode=='exit':assert caught.value.diagnostic['exit_code']==-9
+        assert worker.pending==0 and not worker.status()['ready']
+        await worker.close()
+    asyncio.run(check())
+
+
+def test_low_memory_admission_and_queue_timeout_do_not_kill_healthy_worker(fake_worker,monkeypatch):
+    from app.voice.diagnostics import VoiceDiagnosticError
+    model,spawned=fake_worker
+    async def check():
+        worker=KokoroWorker(sys.executable,str(model),timeout=.02)
+        await worker.warm()
+        child=spawned[0]
+        monkeypatch.setattr('app.voice.neural.psutil.virtual_memory',lambda:SimpleNamespace(available=1))
+        with pytest.raises(VoiceDiagnosticError) as caught:
+            await worker.request({'text':'hello','voice':'af_bella','speed':1})
+        assert caught.value.category=='memory_limit'
+        assert caught.value.diagnostic['available_bytes']==1
+        assert child.returncode is None and len(worker.restarts)==1
+        monkeypatch.setattr('app.voice.neural.psutil.virtual_memory',lambda:SimpleNamespace(available=8*1024**3))
+        await worker.lock.acquire()
+        try:
+            with pytest.raises(VoiceDiagnosticError) as caught:
+                await worker.request({'text':'hello','voice':'af_bella','speed':1})
+            assert caught.value.category=='timeout' and caught.value.diagnostic['stage']=='queue'
+            assert child.returncode is None
+        finally:worker.lock.release()
+        assert await worker.request({'text':'recovered','voice':'af_bella','speed':1})==WAV
+        assert worker.status()['completed_requests']==1
+        await worker.close()
+    asyncio.run(check())
+
+
+def test_cancelled_worker_is_reported_separately_from_crash(fake_worker):
+    model,spawned=fake_worker
+    async def check():
+        worker=KokoroWorker(sys.executable,str(model))
+        await worker.warm(); spawned[0].respond=False
+        task=asyncio.create_task(worker.request({'text':'hello','voice':'af_bella','speed':1}))
+        while not spawned[0].packets:await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):await task
+        assert worker.status()['last_diagnostic']=={'category':'cancelled','stage':'reply'}
+        assert worker.status()['last_stop']['reason']=='cancelled'
+        await worker.close()
+    asyncio.run(check())
+
+
+def test_shutdown_reaps_child_that_exits_before_kill_signal(fake_worker):
+    model,spawned=fake_worker
+    async def check():
+        worker=KokoroWorker(sys.executable,str(model))
+        await worker.warm()
+        child=spawned[0]
+        def exited():
+            child.returncode=0
+            raise ProcessLookupError()
+        child.kill=exited
+        await worker.close()
+        assert worker.status()['last_stop']=={'reason':'shutdown','exit_code':0}
+    asyncio.run(check())

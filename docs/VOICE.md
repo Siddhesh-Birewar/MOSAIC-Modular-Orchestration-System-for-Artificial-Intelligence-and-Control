@@ -9,6 +9,114 @@ Phase 5 dashboard/humanoid remains deferred; no frontend files are changed. Cont
 `feature/phase-6-voice-intelligence` / draft PR #4. Stable milestone remains v0.4.0 (30%).
 Do not merge, create v0.6.0, or begin Phase 7 before user acceptance.
 
+## Reliability and language investigation — 2026-11-26
+
+The owner reported a worker stop after 11.175 s of generated audio in an automatic-language
+concurrent turn, but successful sequential 42.35 s and English-concurrent 54.35 s turns.
+Recovery succeeded. **The cause of that particular stop remains unconfirmed.** Audio
+duration alone cannot identify a timeout, memory rejection or process crash.
+
+Worker status now retains a content-free `last_diagnostic` with category/stage and, when
+known, numeric exit code or available/required bytes. Categories include `memory_limit`,
+`worker_exit`, `timeout`, `invalid_ipc`, `synthesis_failure`, `audio_limit`, `cancelled`,
+`queue_full`, `unavailable` and `restart_limit`. Synthesis/warm-up failures return safe
+503 detail plus diagnostic metadata and `X-Voice-Error-Category`. Cancellation remains 409.
+`last_stop` distinguishes deliberate idle/memory/cancellation cleanup from observed exit.
+Negative exit codes identify signals, **not proof of OOM**. Historical diagnostics may
+remain after recovery; current `ready`, `error` and `memory_admitted` describe current state.
+No transcript, raw audio, exception string or request contents enter these diagnostics.
+
+Review found a concrete lifecycle issue: any admission failure previously stopped the
+worker and hid the cause. Low-memory admission now still rejects synthesis, but does not
+kill a healthy idle worker; a waiting queue timeout cannot kill somebody else's active
+request. Idle pressure release still applies. Startup budgets count actual attempts,
+not rejected admission. The worker clears unused MLX allocator cache after warm-up and
+requests, retaining live model/pipeline parameters. PCM accumulation is bounded as parts
+arrive. These changes do not establish the cause of the owner's earlier failure or remove
+the 1024 MiB default memory floor.
+
+### Recognition and response language
+
+`/language hi` reaches `POST /voice/transcribe?language=hi` and Whisper's fixed `-l hi`.
+Hinglish now also uses `-l hi` rather than auto. No translation flag is supplied. Endpoint
+metadata identifies `requested_language`, `language_source` and script validation. For a
+forced language, Whisper's reported language is **selected**, not independent detection.
+
+The installed Whisper.cpp is 1.9.6. JSON metadata identifies multilingual Base, vocabulary
+51865. The 147,951,465-byte model's SHA-256 matches the published local-model artifact:
+`60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe`.
+[Published model pointer](https://huggingface.co/ggerganov/whisper.cpp/raw/main/ggml-base.bin),
+[Whisper.cpp 1.9.6 CLI source](https://github.com/ggml-org/whisper.cpp/blob/v1.9.6/examples/cli/cli.cpp).
+
+Silent synthetic Hindi tests reproduced Roman Hindi or unsupported-script output even
+with `-l hi`. CPU, disabled flash attention and greedy decoding did not fix the samples.
+A neutral Devanagari prompt still produced mixed unsupported output; a wider-beam trial
+failed with a provider error whose cause was not established. These experimental settings
+were **not adopted**. No model was replaced/downloaded and no dependency reinstalled.
+The existing Base/runtime configuration remains unreliable for Hindi recognition.
+
+The CLI now rejects unsupported-script transcripts, unsupported reported languages and
+explicit Hindi/Hinglish transcripts lacking Devanagari before sending a chat turn. It
+asks the user to re-record or type; it never transliterates, translates or invents the
+intended words. The API still returns recognized text with `validation.accepted=false`
+for clients that need to inspect it; clients must honor that metadata. Script checks
+detect alphabets, not semantic accuracy, and a superficially valid transcript can be wrong.
+
+`/transcript-preview on` optionally displays recognized text and language/source locally
+and asks `Use this transcription? [y/N]`. Default is off (`MOSAIC_TRANSCRIPT_PREVIEW=0`).
+Terminal controls are escaped. Preview creates no additional persistent log, but terminal
+scrollback/screen recording can retain displayed text. Accepted turns still use normal
+SQLite conversation persistence. Preview does not bypass script rejection.
+
+Voice response instructions resolve the current setting independently of older history:
+English uses natural English; Hindi uses Devanagari; Hinglish uses conversational
+Devanagari Hindi mixed with English technical terms. Auto infers a supported target from
+the current message using explicit language requests/script/limited Roman-Hindi markers.
+Unsupported scripts are blocked before Kokoro both in the parent provider and worker.
+
+Valid tool-free speech continues streaming. On a response-language mismatch, the unspoken
+tail is withheld and one text-only rewrite is allowed, with no tools, at most 30 s and
+within the existing orchestration budget. The complete rewrite is checked before speech.
+Already eligible sentences are not replayed; tools and approvals are never retried. A
+failed rewrite produces a fixed selected-language notice. A `voice_warning` makes the
+correction visible. Original chat text stays unchanged and exactly one original turn is
+stored; the correction adds no conversation messages. Deterministic denied/launch-request
+notices are localized. Alphabet checks and prompts do not guarantee fluent language or
+semantic equivalence of an LLM rewrite; inspect the original text when uncertain.
+
+### VAD and metric boundaries
+
+New defaults follow the owner's successful trial: threshold 0.010 and silence 2.0 s. Three
+consecutive above-threshold 20 ms frames activate capture, reducing isolated-click starts.
+Pre-roll retains onset; a 1.2 s natural pause is preserved in deterministic tests. Initial
+waiting is bounded at 10 s and total capture at 30 s. Only 200 ms of trailing silence is sent
+to Whisper; the full endpoint wait still affects interaction latency. Constant background
+noise can still activate energy VAD; it is not a learned speech classifier. Tune per mic.
+The actual `.env` is unchanged and existing overrides continue to take priority.
+
+`time_to_first_audio_seconds` previously stayed null because `setdefault` did not replace
+the initial null. It now aliases the first **device-stream playback_started** timestamp,
+populated only after a successful output-stream start. It is not physical audible onset.
+All following interaction offsets use the last above-threshold VAD frame when available:
+
+- `endpoint_wait_seconds`: capture return minus last active frame; approximate software timing.
+- `first_answer_token_seconds`: first visible answer token, before speech-language eligibility.
+- `first_safe_token_seconds` (legacy name) and `first_segment_seconds`: first eligible speech event.
+- `first_generated_audio_seconds`: first validated WAV returned by synthesis.
+- `first_audio_ready_seconds`: first audio dequeued for playback.
+- `playback_started_seconds` / `time_to_first_audio_seconds`: device output stream started.
+- `capture_completed_to_playback_seconds`: comparable post-capture clock for older samples.
+- `voice_language_repair_seconds` in LLM metrics: correction latency; backend total includes it.
+
+These clocks differ from older post-capture-only offsets. A failed device start leaves the
+playback metric null; a later failure preserves an earlier successful start. Concise
+first-sentence instructions reduce avoidable segmentation wait; complete sentence/code
+boundaries are retained rather than aggressively speaking incomplete or unsafe clauses.
+
+Current component measurements and failed experiments are preserved in
+[BENCHMARK_HISTORY.md](learning/BENCHMARK_HISTORY.md). A short silent mixed batch succeeded,
+but Hindi recognition quality and physical/sustained acceptance remain blockers.
+
 ## Verified runtime and offline assets
 
 The existing `/opt/anaconda3/envs/mosaic-voice/bin/python` reports Python 3.12.16,
@@ -50,7 +158,7 @@ Private inherited pipes carry newline-delimited JSON; there is no neural network
 Protocol version 1 readiness includes warmed state, initialization/load timings, MLX peak
 allocation and dtypes. Requests contain exactly integer id, text, voice and speed (8 KiB cap).
 Replies contain the matching id, base64 mono PCM WAV, sample-rate/latency/allocation metadata,
-or a generic error (3 MB IPC cap; 2 MB validated WAV cap). Workers never echo private text.
+or a fixed diagnostic category (3 MB IPC cap; 2 MB validated WAV cap). Workers never echo private text.
 Third-party Python and native stdout/stderr are discarded; only protocol messages use the
 private duplicated stdout pipe. Credentials are excluded from the child's environment.
 
@@ -143,6 +251,9 @@ MOSAIC_VOICE_LANGUAGE=auto
 MOSAIC_VOICE_REASONING=default
 MOSAIC_VOICE_TOOLS=1
 MOSAIC_TTS_SPEED=1
+MOSAIC_VAD_THRESHOLD=0.010
+MOSAIC_VAD_SILENCE_SECONDS=2.0
+MOSAIC_TRANSCRIPT_PREVIEW=0
 ```
 
 Keep existing MOSAIC_API_TOKEN, database, allowed-root and application settings private.
@@ -179,6 +290,8 @@ Supported voice commands (all text commands remain available):
 /reasoning medium
 /reasoning high
 /voice-tools off
+/transcript-preview on
+/transcript-preview off
 /voice
 /voice on
 /voice off
@@ -266,7 +379,7 @@ experiments as a sustained thermal/memory-pressure acceptance test.
 
 ## Automated checks
 
-The complete deterministic suite reports 116 passed, with the real-model test skipped by
+The reliability iteration's complete deterministic suite reports 160 passed, with the real-model test skipped by
 default and one existing Starlette/httpx warning. The explicit cached-model integration test
 was separately executed and passed, verifying model reuse, readiness/warm-up, parameter dtype
 reporting, offline English/Hindi generation and shutdown. Both Python environments compiled;
@@ -302,3 +415,58 @@ recovery, not physical microphone/speaker latency. UUID cancellation is remember
 seconds (bounded to 512 sessions) so a late synthesis request cannot escape an earlier cancel.
 
 No merge or v0.6.0 tag until these application-level checks are accepted by the user.
+
+## Exact reliability retest sequence
+
+Keep the backend startup command above. In a second terminal from the repository root:
+
+```sh
+set -a
+source .env
+set +a
+export MOSAIC_VAD_THRESHOLD=0.010
+export MOSAIC_VAD_SILENCE_SECONDS=2.0
+export MOSAIC_TRANSCRIPT_PREVIEW=0
+backend/.venv/bin/python scripts/chat.py --backend http://127.0.0.1:8000
+```
+
+These exports affect the CLI only and do not edit `.env`. In the CLI enter one command
+per line:
+
+```text
+/tts kokoro
+/voice-status
+/reasoning low
+/voice-tools off
+/transcript-preview on
+/language en
+/voice
+/language hi
+/voice
+/language hinglish
+/voice
+/language auto
+/voice
+/voice-status
+```
+
+Use disposable questions, inspect/confirm each valid preview and reject inaccurate words.
+Wrong-script Hindi must stop before chat; report it as recognition failure, not a successful
+multilingual turn. Pause naturally within speech and confirm capture does not cut off at
+the old 0.8 s threshold. Inspect populated playback metrics after successful physical output.
+If a worker stops, inspect only diagnostic category/stage/exit code, memory and stop reason;
+then retry `/tts kokoro` and a fresh harmless turn. Do not infer the cause from duration.
+
+Restore `/voice-tools on` for separate typed-approval/rejection checks. Test Ctrl+C during
+all stages, then a fresh turn with no stale audio. Disable preview with
+`/transcript-preview off`. Repeated/sustained and hardware checks still need owner acceptance.
+
+Optional silent existing-model experiments (no microphone/speaker or persistent chats):
+
+```sh
+backend/.venv/bin/python scripts/benchmark_neural_voice.py --llm --language-check --stress-rounds 4
+```
+
+This synthesizes 12 mixed-language segments alongside one short LLM request, with overlap
+only while that request is running. It prints script counts, not transcript contents.
+68.3 s of generated audio is not 68.3 s of wall-time load or a physical playback test.

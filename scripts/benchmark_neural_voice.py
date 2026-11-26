@@ -18,10 +18,19 @@ from app.models.ollama_client import OllamaClient
 from app.voice.audio import decode_wav, encode_wav
 from app.voice.neural import KokoroWorker
 from app.voice.providers import MacOSTTS, WhisperCpp
+from app.voice.language import language_issue, script_counts
 
 
 def snapshot():
     return {'available_bytes':psutil.virtual_memory().available,'swap_used_bytes':psutil.swap_memory().used}
+
+
+def microphone_wav(data):
+    audio=decode_wav(data)
+    samples=array('h',audio.pcm)
+    resampled=array('h',(samples[min(int(i*audio.rate/16000),len(samples)-1)]
+                       for i in range(int(len(samples)*16000/audio.rate))))
+    return encode_wav(resampled.tobytes())
 
 
 async def benchmark(args):
@@ -52,6 +61,18 @@ async def benchmark(args):
                 transcript=await stt.transcribe(wav,'en')
                 timings.append({'seconds':time.monotonic()-started,'nonempty':bool(transcript.text)})
             result['transcription_cold_then_warm']=timings
+        if args.language_check:
+            # Known synthetic Hindi, not a user's microphone sample or an accuracy score.
+            data=await worker.request({'text':'मुझे बताइए कि कृत्रिम बुद्धिमत्ता कैसे काम करती है।','voice':'hf_alpha','speed':1})
+            wav=microphone_wav(data)
+            stt=WhisperCpp('/opt/homebrew/bin/whisper-cli',str(Path.home()/'AI-Models/Whisper/ggml-base.bin'))
+            result['synthetic_hindi_stt']=[]
+            for language in ('hi','auto'):
+                started=time.monotonic()
+                transcript=await stt.transcribe(wav,language)
+                result['synthetic_hindi_stt'].append({'requested_language':language,
+                    'reported_language':transcript.language,'seconds':time.monotonic()-started,
+                    'scripts':script_counts(transcript.text),'issue':language_issue(transcript.text,language,transcript.language)})
         if args.llm:
             client=OllamaClient('http://127.0.0.1:11434',timeout=180)
             levels=await client.thinking_levels('gpt-oss:20b')
@@ -69,11 +90,16 @@ async def benchmark(args):
             result['llm_without_tts']=await llm()
             async def tts_load():
                 rows=[]
-                for _ in range(6):
+                samples=[('af_bella','Local neural speech and model generation can share the machine.'),
+                         ('hf_alpha','कृत्रिम बुद्धिमत्ता उदाहरणों से सीखकर प्रश्नों के उत्तर देती है।'),
+                         ('hf_alpha','यह CPU और memory का उदाहरण है। छोटे भागों में काम करना उपयोगी है।')]
+                for index in range(args.stress_rounds*3 if args.stress_rounds else 6):
                     started=time.monotonic()
-                    data=await worker.request({'text':'Local neural speech and model generation can share the machine.','voice':'af_bella','speed':1})
+                    voice,text=samples[index%3] if args.stress_rounds else samples[0]
+                    data=await worker.request({'text':text,'voice':voice,'speed':1})
                     elapsed=time.monotonic()-started
-                    rows.append({'seconds':elapsed,'rtf':elapsed/decode_wav(data).duration})
+                    rows.append({'voice':voice,'seconds':elapsed,'audio_seconds':decode_wav(data).duration,
+                                 'rtf':elapsed/decode_wav(data).duration})
                 return rows
             result['llm_with_tts'],result['concurrent_synthesis']=await asyncio.gather(llm(),tts_load())
         result['worker_status']=worker.status()
@@ -89,4 +115,10 @@ if __name__=='__main__':
     parser.add_argument('--skip-stt',action='store_true')
     parser.add_argument('--cold-start',action='store_true',help='Skip pre-readiness warm-up to measure first language pipeline invocations')
     parser.add_argument('--llm',action='store_true',help='Run two synthetic gpt-oss:20b requests, one concurrent with TTS')
-    asyncio.run(benchmark(parser.parse_args()))
+    parser.add_argument('--language-check',action='store_true',help='Synthetic cached Kokoro Hindi -> existing Whisper Base; no mic or transcripts printed')
+    parser.add_argument('--stress-rounds',type=int,choices=range(1,5),default=0,
+                        help='With --llm, run 1–4 English/Hindi/Hinglish synthesis cycles instead of six English requests')
+    args=parser.parse_args()
+    if args.stress_rounds and not args.llm:
+        parser.error('--stress-rounds requires --llm')
+    asyncio.run(benchmark(args))

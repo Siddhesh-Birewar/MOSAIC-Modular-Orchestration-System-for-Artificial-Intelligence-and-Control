@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased — Phase 6 neural upgrade
+- Added content-free worker diagnostic categories/stages/exit and memory counters, healthy-worker preservation on rejected admission/queue timeout, bounded PCM accumulation and unused MLX cache release. The owner's intermittent worker failure remains unconfirmed.
+- Fixed Hinglish Whisper language forwarding, added transcript script/language validation and opt-in local preview/confirmation. Existing verified Base weights/runtime still fail synthetic Hindi script checks; no model/dependency replacement was made.
+- Enforced current voice response language independently of old history, blocked unsupported Kokoro scripts and added one bounded tool-free rewrite of unspoken mismatches without repeated tools/history. Added pause-tolerant VAD defaults/onset filtering and corrected first-audio/device-stream timing.
+- Expanded deterministic regression coverage to 160 passing cases and extended silent mixed-language/Whisper benchmark tooling. Updated learning records with both failed recognition trials and successful synthesis samples; physical and sustained acceptance remain pending.
 - Added `docs/learning/` with evidence-backed Phase 1–4 reconstruction, an active Phase 6 guide, study roadmap, journal, architecture/technology/command records, error and benchmark history, glossary, exercises and educational content ideas. Added permanent learning maintenance and verification requirements to AGENTS.md without changing milestone acceptance gates.
 - Added persistent offline MLX Kokoro worker using the existing isolated neural environment and cached assets, with warm-up, bounded IPC/queues/restarts, cancellation, retention, readiness/dtype/resource reporting and explicit native fallback.
 - Added spoken normalization, English/Hindi/Hinglish routing, bounded segmentation and ordered streaming synthesis/playback. Tool-enabled speech remains buffered until completed orchestration; failed actions receive deterministic noncompletion notices.

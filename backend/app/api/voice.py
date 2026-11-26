@@ -7,10 +7,13 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.tools import require_local_token
 from app.voice.audio import MAX_AUDIO_BYTES, VoiceError, VoiceInputError, decode_wav
+from app.voice.diagnostics import VoiceDiagnosticError
+from app.voice.language import language_issue, script_counts
 
 router = APIRouter(prefix="/voice", dependencies=[Depends(require_local_token)])
 
@@ -48,7 +51,8 @@ async def _connected(request: Request, operation):
         try:
             return await task
         except asyncio.CancelledError:
-            raise HTTPException(status_code=409, detail="Voice synthesis cancelled")
+            raise HTTPException(status_code=409, detail="Voice synthesis cancelled",
+                                headers={"X-Voice-Error-Category":"cancelled"})
     finally:
         if session and active is not None:
             active.get(session, set()).discard(task)
@@ -113,7 +117,10 @@ async def transcribe(request: Request, response: Response, language: Literal["au
         async with request.app.state.voice_lock:
             result = await _connected(request, request.app.state.stt.transcribe(bytes(data), language))
         response.headers["Cache-Control"] = "no-store"
-        return {"text": result.text, "language": result.language,
+        issue = language_issue(result.text, language, result.language)
+        return {"text": result.text, "language": result.language, "requested_language":language,
+                "language_source":"detected" if language == "auto" else "selected",
+                "validation":{"accepted":issue is None, "category":issue, "scripts":script_counts(result.text)},
                 "transcription_seconds": round(time.monotonic() - started, 6)}
     except VoiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -125,8 +132,15 @@ async def transcribe(request: Request, response: Response, language: Literal["au
 async def warmup(request: Request):
     try:
         return await _connected(request, request.app.state.neural.warm())
+    except VoiceDiagnosticError as exc:
+        return _diagnostic_response(exc)
     except VoiceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _diagnostic_response(error: VoiceDiagnosticError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail":str(error), "diagnostic":error.diagnostic},
+                        headers={"Cache-Control":"no-store", "X-Voice-Error-Category":error.category})
 
 
 @router.post("/synthesize")
@@ -149,6 +163,8 @@ async def synthesize(body: SpeechRequest, request: Request):
             "X-Sample-Rate":str(audio.rate),
             "X-Audio-Duration": str(round(audio.duration, 6)),
         })
+    except VoiceDiagnosticError as exc:
+        return _diagnostic_response(exc)
     except VoiceInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except VoiceError as exc:

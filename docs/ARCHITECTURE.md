@@ -61,3 +61,12 @@ VoiceEvent exposes speech/playback start/end, submitted PCM position/amplitude, 
 cancellation. Device-stream timing is not calibrated audible onset. Phoneme/viseme fields
 remain null. Phase 5 UI/humanoid is deferred; no frontend dependency or implementation is added.
 See VOICE.md for exact lifecycle/IPC semantics and measured performance limitations.
+
+The reliability follow-up adds `voice.language` for supported-script checks/current-turn
+language instructions, `voice.response.repair_response` for one bounded tools-disabled
+rewrite of the unspoken tail, and `voice.diagnostics.VoiceDiagnosticError` for content-free
+error metadata. Correction performs no tool orchestration or history mutation; original
+chat text remains stored once. Invalid recognition is rejected by the CLI before chat;
+the transcription API reports its validation metadata for other clients. Optional terminal
+preview requires explicit activation and confirmation. VAD now separates capture completion
+from the last active-frame timestamp; playback metrics are set by device-stream events.

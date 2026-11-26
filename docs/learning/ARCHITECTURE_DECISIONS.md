@@ -65,3 +65,28 @@ The cached repository's BF16 name conflicts with its F32 tensor header. Preserve
 assets and report dtypes rather than silently converting. Explicit reasoning levels are
 validated against installed Ollama metadata; no unreliable automatic classifier was added.
 Half-duplex capture avoids feedback while full-duplex/echo cancellation remains absent.
+
+
+## Separate rejection, crash and cleanup (verified Phase 6 reliability change)
+
+[VoiceDiagnosticError](../../backend/app/voice/diagnostics.py) carries fixed categories and
+numeric evidence. Admission/queued-timeout rejection preserves a healthy worker, while
+memory limits, idle release and in-flight cleanup remain. Unused MLX cache is released;
+live model/pipelines stay reusable. This supports investigation without transcript logs
+or assuming that an exit signal proves OOM.
+
+## Validate input without inventing meaning (verified Phase 6 change)
+
+The existing Base/runtime failed synthetic Hindi checks even with forced hi. Unproven
+prompt/backend tuning was not adopted. Script validation and opt-in preview reject uncertain
+input before chat. Trade-off: the user must re-record or type; script checks cannot establish
+meaning. Evaluating a replacement needs separate evidence and model-download approval.
+
+## Correct language outside action orchestration (verified Phase 6 change)
+
+[repair_response](../../backend/app/voice/response.py) rewrites the withheld tail at most
+once, with tools disabled, a 30 s bound and the remaining orchestration budget. The entire
+correction is validated before speech. No tool/approval retry, history rewrite or duplicate
+turn occurs; original chat text remains. Valid speech streams normally. A correction costs
+latency and cannot guarantee semantic equivalence; deterministic action notices are localized.
+VAD changes similarly trade pause tolerance for endpoint delay, with separate clocks.

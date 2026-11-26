@@ -38,3 +38,11 @@ feature branch unless separately requested.
 The [product roadmap](../ROADMAP.md) remains authoritative for development scope.
 Phase 5 is deferred. Phase 6 implementation is present but awaits manual acceptance;
 studying it does not close it or start Phase 7.
+
+
+Phase 6 reliability study checkpoint: trace one rejected transcript from
+[language_issue](../../backend/app/voice/language.py) through the CLI before chat. Explain
+why selecting hi differs from detecting hi, and why script correctness is not meaning
+correctness. Then trace a response-only repair and prove it cannot repeat a tool action.
+Finally explain the difference between memory rejection, process exit and intentional
+cleanup using [VoiceDiagnosticError](../../backend/app/voice/diagnostics.py), without guessing OOM.

@@ -2,12 +2,14 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import json
 import re
 import queue
 import threading
 import socket
 from uuid import uuid4
 import time
+import unicodedata
 from typing import TYPE_CHECKING, Literal, Any
 
 if TYPE_CHECKING:
@@ -15,6 +17,8 @@ if TYPE_CHECKING:
 
 from app.voice.audio import Audio, VoiceError, amplitude, decode_wav, encode_wav, require_loopback
 from app.voice.text import Segmenter, language_for
+from app.voice.language import language_issue
+from app.voice.diagnostics import CATEGORIES
 
 State = Literal["idle", "listening", "transcribing", "thinking", "speaking", "cancelling", "error"]
 
@@ -32,8 +36,8 @@ class VoiceEvent:
 
 
 class AudioDevice:
-    def __init__(self, microphone: int | None = None, threshold: float = 0.015,
-                 silence_seconds: float = 0.8) -> None:
+    def __init__(self, microphone: int | None = None, threshold: float = 0.010,
+                 silence_seconds: float = 2.0) -> None:
         if not 0 < threshold < 1 or not 0.2 <= silence_seconds <= 3:
             raise VoiceError("Invalid VAD threshold or silence duration")
         self.microphone, self.threshold, self.silence_seconds = microphone, threshold, silence_seconds
@@ -66,7 +70,9 @@ class AudioDevice:
             pre_roll: list[bytes] = []
             speech = False
             quiet = 0
-            for _ in range(1500):  # 30s, 20ms blocks
+            voiced = 0
+            self.last_speech_end_at = None
+            for index in range(1500):  # 30s hard cap, including initial silence, 20ms blocks
                 data, overflowed = stream.read(320)
                 if overflowed:
                     raise VoiceError("Microphone overflow; try again")
@@ -74,11 +80,15 @@ class AudioDevice:
                 level = amplitude(block)
                 emit("input_amplitude", amplitude=level)
                 if level >= self.threshold:
-                    if not speech:
+                    voiced += 1
+                    self.last_speech_end_at = time.monotonic()
+                    if not speech and voiced >= 3:  # 60ms activation rejects isolated noise spikes.
                         frames.extend(pre_roll)
                         pre_roll.clear()
-                    speech, quiet = True, 0
+                        speech = True
+                    quiet = 0
                 else:
+                    voiced = 0
                     quiet += 1
                 if speech:
                     frames.append(block)
@@ -87,10 +97,12 @@ class AudioDevice:
                 else:
                     pre_roll.append(block)
                     pre_roll = pre_roll[-10:]
-                    if quiet >= 500:  # no speech in 10s
+                    if index >= 499:  # no sustained speech in 10s, even with noise spikes
                         break
             if not speech:
                 raise VoiceError("No speech detected; check the microphone or VAD threshold")
+            if quiet > 10:
+                frames = frames[:-(quiet-10)]  # Keep 200ms trailing silence; omit endpoint wait from STT.
             return encode_wav(b"".join(frames))
         except (VoiceError, KeyboardInterrupt):
             raise
@@ -164,12 +176,18 @@ class VoiceSession:
         self.started = time.monotonic()
         self.event_sink = event_sink or (lambda event: None)
         self.metrics: dict[str, Any] = {}
+        self.transcript_preview = False
 
     def emit(self, kind: str, **values) -> None:
         if kind == "playback_amplitude" and self.cancelled.is_set():
             raise VoiceError("Voice playback cancelled")
         if kind == "playback_started" and hasattr(self,"eos"):
-            self.metrics.setdefault("playback_started_seconds",time.monotonic()-self.eos)
+            elapsed = time.monotonic()-self.eos
+            if self.metrics.get("playback_started_seconds") is None:
+                self.metrics["playback_started_seconds"] = elapsed
+                self.metrics["time_to_first_audio_seconds"] = elapsed
+                if hasattr(self,"capture_finished"):
+                    self.metrics["capture_completed_to_playback_seconds"] = time.monotonic()-self.capture_finished
         self.event_sink(VoiceEvent(kind, self.state, round(time.monotonic() - self.started, 6), **values))
 
     def change(self, state: State) -> None:
@@ -188,11 +206,13 @@ class VoiceSession:
             self.change("listening")
             audio = self.device.record(self.emit)
             decode_wav(audio, microphone=True)
-            self.eos = time.monotonic()
+            self.capture_finished = time.monotonic()
+            self.eos = getattr(self.device,"last_speech_end_at",None) or self.capture_finished
+            self.metrics["endpoint_wait_seconds"] = self.capture_finished-self.eos
             self.change("transcribing")
             response = self.cli.client.post(
                 f"{self.cli.backend_url}/voice/transcribe", content=audio,
-                params={"language": "auto" if self.language == "hinglish" else self.language},
+                params={"language": "hi" if self.language == "hinglish" else self.language},
                 headers={**self.cli._auth_headers(), "Content-Type": "audio/wav"},
             )
             audio = b""
@@ -202,6 +222,19 @@ class VoiceSession:
             text = transcript.get("text", "").strip()
             if not text:
                 raise VoiceError("No speech was transcribed")
+            if self.transcript_preview:
+                # Explicitly opted-in terminal display only. JSON escaping neutralizes terminal controls.
+                detected = transcript.get("language")
+                display = ''.join(c if not unicodedata.category(c).startswith('C') else f'\\u{ord(c):04x}' for c in text)
+                self.cli.output("Transcript preview: " + json.dumps({"text":display,
+                    "language":detected if detected in {"en","hi"} else "unsupported/unknown",
+                    "language_source":transcript.get("language_source") if transcript.get("language_source") in {"selected","detected"} else "unknown"},ensure_ascii=False))
+            issue = language_issue(text,self.language,transcript.get("language"))
+            if issue:
+                raise VoiceError(f"Transcription rejected [{issue}]. Re-record clearly or type your message; no conversation turn was sent.")
+            if self.transcript_preview and self.cli.input("Use this transcription? [y/N] ").strip().casefold() not in {"y","yes"}:
+                self.change("idle")
+                return
             # No slash-command interpretation: transcription is conversation input only.
             self.change("thinking")
             reply_started = time.monotonic()
@@ -246,8 +279,7 @@ class VoiceSession:
             if data.get("sequence") != expected[0]:
                 raise VoiceError("Speech event ordering mismatch")
             expected[0] += 1
-            if self.tools:
-                self.metrics.setdefault("first_safe_token_seconds",time.monotonic()-self.eos)
+            self.metrics.setdefault("first_safe_token_seconds",time.monotonic()-self.eos)
             if "first_segment_seconds" not in self.metrics:
                 self.metrics["first_segment_seconds"] = time.monotonic()-self.eos
             put(segments, (data["text"],data.get("language")))
@@ -266,7 +298,7 @@ class VoiceSession:
                 else:
                     self.cli.send_message(text, speech_sink=accept, voice_options=options,
                         cancelled=self.cancelled, stream_ready=lambda stream: setattr(self,"active_stream",stream),
-                        token_sink=lambda data: self.metrics.setdefault("first_safe_token_seconds",time.monotonic()-self.eos))
+                        token_sink=lambda data: self.metrics.setdefault("first_answer_token_seconds",time.monotonic()-self.eos))
                     if getattr(self.cli,"last_stream_failed",False):
                         raise VoiceError("Voice conversation stream failed")
             except Exception:
@@ -288,6 +320,13 @@ class VoiceSession:
                         json={"text":segment,"voice":self.voice,"speed":self.speed,
                               "provider":self.provider,"language":route if route in {"en","hi","hinglish"} else language_for(segment,self.language,detected),
                               "detected_language":detected if detected in {"en","hi"} else None})
+                    if getattr(response,"status_code",200) >= 400:
+                        try:
+                            diagnostic = response.json().get("diagnostic",{})
+                            category = diagnostic.get("category") or response.headers.get("x-voice-error-category")
+                        except (ValueError,AttributeError):
+                            category = None
+                        self.metrics["synthesis_error_category"] = category if category in CATEGORIES else "synthesis_failure"
                     response.raise_for_status()
                     audio = decode_wav(response.content)
                     self.metrics["synthesis_seconds"] = self.metrics.get("synthesis_seconds",0)+time.monotonic()-started
@@ -299,7 +338,8 @@ class VoiceSession:
                     put(audios, audio)
             except Exception:
                 if not self.cancelled.is_set():
-                    failures.append("Voice synthesis unavailable; check /voice-status")
+                    category = self.metrics.get("synthesis_error_category","synthesis_failure")
+                    failures.append(f"Voice synthesis unavailable [{category}]; check /voice-status")
                 self.cancelled.set()
             finally:
                 put(audios, end)
@@ -313,7 +353,7 @@ class VoiceSession:
                 if audio is end:
                     break
                 self.change("speaking")
-                self.metrics.setdefault("time_to_first_audio_seconds",time.monotonic()-self.eos)
+                self.metrics.setdefault("first_audio_ready_seconds",time.monotonic()-self.eos)
                 self.emit("speech_start",playback_seconds=0)
                 try:
                     self.device.play(audio,self.emit)

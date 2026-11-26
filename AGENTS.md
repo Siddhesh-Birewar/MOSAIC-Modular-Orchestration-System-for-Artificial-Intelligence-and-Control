@@ -17,6 +17,7 @@
 - Keep `LEARNING_ROADMAP.md`, `DEVELOPMENT_JOURNAL.md`, `ARCHITECTURE_DECISIONS.md`, `TECHNOLOGY_REGISTRY.md`, `COMMAND_REFERENCE.md`, `ERRORS_AND_SOLUTIONS.md`, `BENCHMARK_HISTORY.md`, `CONCEPT_GLOSSARY.md`, `INSTAGRAM_CONTENT_IDEAS.md`, and the relevant `phases/` guide current as work progresses.
 - Each phase guide must cover the 20 topics defined in `docs/learning/README.md`, including chronological implementation, alternatives/trade-offs, tests, security, actual measurements, Git evidence, rebuilding exercises and educational content ideas.
 - Label verified historical facts, user-reported observations, reconstructed explanations and unmeasured/pending results separately. Cite repository revisions, tests or existing records; never invent past decisions, errors, experiments or benchmarks.
+- Record failed and aborted experiments as well as successes. Separate generated-audio, device-stream and physical audible timing; keep diagnostic records content-free and never infer an OOM cause solely from a worker exit signal.
 - Before milestone completion, verify learning-document coverage, source links/symbols, command context, measurement provenance, privacy and accurate phase status. Update learning records alongside implementation, not only at closeout. Never include credentials, private conversations, personal data or secrets.
 
 ## Mandatory Git and GitHub milestone workflow

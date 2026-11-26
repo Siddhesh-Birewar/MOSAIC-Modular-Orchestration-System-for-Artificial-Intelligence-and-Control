@@ -85,3 +85,42 @@ a workaround for a stuck adapter.
 The suite emits a Starlette/httpx deprecation warning. Tests pass; this warning is not
 a benchmark or a claimed regression fix. Dependency maintenance should be evaluated
 separately, without unrelated upgrades during phase documentation work.
+
+
+## Rejected admission looked like a crash (Phase 6 reliability)
+
+**Verified source defect:** generic handling stopped the worker on any request exception.
+A rejected memory admission is not a crashed process, and a queued waiter's timeout must
+not kill another active request. Admission still rejects below the configured floor;
+in-flight failure/cancellation still reaps the child; idle pressure release remains.
+[VoiceDiagnosticError](../../backend/app/voice/diagnostics.py) supplies fixed categories,
+stages and numeric exit/memory evidence. Status separates deliberate stop reasons from
+observed exits. A signal alone is not proof of OOM. Two mixed batches passed, but the
+owner's earlier intermittent stop remains unexplained.
+
+## Hindi selection did not guarantee Hindi script (Phase 6 reliability)
+
+hi already reached `-l hi`; Hinglish used auto and was corrected. The local Base artifact
+matches published metadata/checksum. Forced hi still produced wrong scripts on known
+synthetic samples. CPU/no-flash/greedy did not fix them. A neutral prompt was still invalid;
+a beam-10 trial failed without a captured exit cause. No tuning/replacement was adopted.
+[language_issue](../../backend/app/voice/language.py) and the CLI reject invalid transcripts
+before chat. Preview lets users reject incorrect words even when the script passes. Never
+transliterate an uncertain transcript and claim its meaning is verified. Current-language
+response instructions and one tools-disabled tail rewrite handle a separate output problem
+without repeating actions or writing another turn. See [actual trials](BENCHMARK_HISTORY.md).
+
+## Playback happened but first-audio stayed null (Phase 6 reliability)
+
+**Verified cause:** `dict.setdefault` preserved an existing key whose value was None.
+[VoiceSession.emit](../../scripts/voice.py) now assigns the first playback-start value
+when it is null. Dequeued/generated audio has separate clocks; failure before device start
+keeps playback unknown. Software stream start is still not physical audible onset.
+
+## Natural pauses ended capture (Phase 6 reliability)
+
+**Owner-reported improvement:** 0.010 / 2.0 s settings now replace 0.015 / 0.8 s defaults.
+Three 20 ms voiced frames activate recording with bounded pre-roll; tests preserve quiet
+speech and a 1.2 s pause. Initial wait remains 10 s, total capture 30 s, trailing audio
+sent to STT 200 ms. Energy VAD still confuses sustained noise with speech. More silence
+tolerance increases endpoint latency; existing local overrides remain untouched.

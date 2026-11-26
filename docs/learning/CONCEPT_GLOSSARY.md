@@ -62,3 +62,23 @@
   involving real components. Mocked sound output cannot establish audible quality.
 - **Commit / PR / annotated tag:** source snapshot / reviewable proposed merge / named
   milestone with metadata. Draft PR #4 is not a release; v0.4.0 remains latest complete.
+
+
+- **Selected versus detected language:** a forced decoder setting is an instruction;
+  its returned language label is not independent recognition evidence.
+- **Script versus meaning:** Latin/Devanagari/unsupported alphabet checks can reject an
+  obvious mismatch, but cannot prove recognized words or their meaning are correct.
+- **Decoder hint:** text used to bias recognition. A neutral Hindi prompt failed the
+  measured sample and was not adopted; it is not a verified transcription repair.
+- **Admission versus execution failure:** not enough available memory can reject new work
+  without implying a retained worker crashed. A queued waiter does not own active work.
+- **Exit code versus cause:** a signal identifies how a process ended, not why; deliberate
+  cleanup can produce the same code as an external kill. Inspect numeric evidence/stop reason.
+- **Allocator cache versus live parameters:** clearing unused MLX blocks differs from
+  unloading model/pipeline data. Allocation snapshots are not total system memory.
+- **Endpoint hangover:** silence allowed before recording ends. More pause tolerance costs
+  latency; last active-frame and capture-completed timestamps measure different boundaries.
+- **Idempotence and recovery:** repeating a request can repeat a side effect. Language
+  correction instead uses tools-disabled text and no new history write; it is not action replay.
+- **`setdefault` with None:** an existing key stays present even if its value is None;
+  assigning on a null check fixes the first-audio metric without overwriting its first value.

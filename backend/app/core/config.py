@@ -69,15 +69,18 @@ class Settings:
         queue_size = int(os.getenv("MOSAIC_NEURAL_QUEUE_SIZE", "3"))
         idle = float(os.getenv("MOSAIC_NEURAL_IDLE_SECONDS", "180"))
         neural_timeout = float(os.getenv("MOSAIC_NEURAL_TIMEOUT", "60"))
+        min_available_mb = int(os.getenv("MOSAIC_NEURAL_MIN_AVAILABLE_MB", "1024"))
         if not 1 <= queue_size <= 8 or not 5 <= idle <= 3600 or not 1 <= neural_timeout <= 180:
             raise ValueError("Invalid neural voice lifecycle limits")
+        if min_available_mb < 1:
+            raise ValueError("MOSAIC_NEURAL_MIN_AVAILABLE_MB must be positive")
         return cls(
             tts_provider=provider,
             neural_python=os.getenv("MOSAIC_NEURAL_PYTHON", cls.neural_python),
             kokoro_model=os.getenv("MOSAIC_KOKORO_MODEL", ""),
             neural_warmup=os.getenv("MOSAIC_NEURAL_WARMUP", "1") == "1",
             neural_timeout=neural_timeout, neural_idle_seconds=idle, neural_queue_size=queue_size,
-            neural_min_available_mb=int(os.getenv("MOSAIC_NEURAL_MIN_AVAILABLE_MB", "1024")),
+            neural_min_available_mb=min_available_mb,
             tts_fallback=os.getenv("MOSAIC_TTS_FALLBACK", "0") == "1",
             ollama_url=os.getenv("MOSAIC_OLLAMA_URL", cls.ollama_url).rstrip("/"),
             primary_model=os.getenv("MOSAIC_PRIMARY_MODEL", cls.primary_model),

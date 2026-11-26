@@ -127,13 +127,25 @@ backend/.venv/bin/python scripts/chat.py --backend http://127.0.0.1:8000
 Use `/tts kokoro` to warm the engine, `/voice-status`, `/voices`, `/mic [INDEX]`, `/voice`,
 `/voice on`, `/voice off`, `/language auto|en|hi|hinglish`, `/speed 0.5–2`,
 `/reasoning default|low|medium|high`, `/voice-tools on|off`, and `/tts macos`.
+`/transcript-preview on|off` optionally displays recognized text locally and asks for
+confirmation; it is off by default and creates no additional persistent log. Hindi and
+Hinglish force Whisper's Hindi argument. Wrong/unsupported scripts stop before chat;
+the existing Base/runtime still failed synthetic Hindi quality checks. Explicit response
+language settings override old conversation preferences; one bounded tool-free correction
+may repair unspoken response text without repeating actions or adding history turns.
 Ctrl+C interrupts; the microphone closes during responses. Tools stay on by default and
 speech waits for completed orchestration. Explicit tools-off mode streams eligible speech
 segments while the model generates; synthesis/playback queues are bounded and ordered.
 Existing text commands, persisted history and typed approvals are preserved.
 
-The upgrade passes 116 deterministic tests plus one explicit real-model integration test. Short warm neural synthesis measured 0.130–0.171 s;
-concurrent synthesis measured 0.596–0.875 s. The live HTTP probe reached generated audio in
+The reliability update passes 160 deterministic tests; the separately identified real-model
+integration also passes. Worker failures now expose safe categories/stages/exit codes or
+memory counters while retaining memory limits. New VAD defaults are 0.010 / 2.0 seconds;
+existing `.env` overrides are preserved. First-audio metrics now follow actual output-stream
+start rather than staying null. See the voice guide for clock boundaries and retest commands.
+
+Earlier short warm neural synthesis measured 0.130–0.171 s;
+concurrent synthesis measured 0.596–0.875 s. The earlier live HTTP probe reached generated audio in
 4.074 s, which misses the ideal three-second target even before playback. Actual audible
 latency and sustained concurrency require manual acceptance. No acoustic barge-in or
 phoneme/viseme alignment is claimed. The PR stays draft and stable release stays v0.4.0.
