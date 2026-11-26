@@ -4,7 +4,7 @@ Modular Orchestration System for Artificial Intelligence and Control.
 
 A local-first personal AI assistant.
 
-Development status: Phase 4 complete — persistent memory, notes and learning (v0.4.0; roadmap 30%).
+Development status: Phase 6 local voice intelligence in progress. Phase 5 dashboard/humanoid is deferred. Latest stable milestone: v0.4.0 (30%).
 
 ## Backend quick start
 
@@ -98,3 +98,22 @@ Run checks from the `backend/` directory with `.venv/bin/python -m pytest`. To d
 installed models, start the API and run `python scripts/benchmark_models.py` from the
 repository root. This makes ten model inferences by default and is not run automatically;
 use `--model qwen3:8b` to limit the run.
+
+## Local voice CLI (Phase 6 preview)
+
+Follow [docs/VOICE.md](docs/VOICE.md) to configure an existing local Whisper.cpp binary
+and approved multilingual model. Install optional microphone/playback support with
+`backend/.venv/bin/python -m pip install -e 'backend[voice]'`, then use the existing backend
+startup command including `--env-file ../.env`. Export local `.env` values before starting
+`backend/.venv/bin/python scripts/chat.py`.
+
+`/voice` arms one utterance after Enter; energy VAD ends it on silence. `/voice on` explicitly
+enters continuous conversation; Ctrl+C interrupts capture, inference, or playback and returns
+to text. `/voice off`, `/mic [INDEX]`, `/voices`, and `/voice-status` configure/inspect voice.
+The microphone closes before each model reply and playback to prevent feedback. Existing
+conversation commands, saved memory, and typed action approvals are reused. English/Hindi/
+Hinglish recognition quality and voice naturalness still require manual verification.
+
+No speech weights or cloud services are installed automatically. The initial TTS adapter uses
+installed macOS voices; Kokoro and IndicF5 evaluation and benchmark limits are documented
+in [docs/VOICE.md](docs/VOICE.md). No Phase 5 frontend files are changed.

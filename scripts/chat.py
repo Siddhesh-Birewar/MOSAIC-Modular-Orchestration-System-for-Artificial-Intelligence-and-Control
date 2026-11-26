@@ -9,6 +9,10 @@ from typing import Any, Callable
 
 import httpx
 
+if __package__ in {None, ""}:
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 
 def parse_sse(lines: Iterable[str]):
     event = "message"
@@ -46,6 +50,7 @@ class MosaicCLI:
         self.conversation_id: str | None = None
         self.model: str | None = None
         self.show_metrics = False
+        self.voice_session = None
 
     def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
@@ -67,7 +72,7 @@ class MosaicCLI:
         self.output(f"Started conversation {self.conversation_id} ({self.model}).")
 
     def help(self) -> None:
-        self.output("Commands: /help /new /clear /models /model MODEL /status /metrics /exit")
+        self.output("Commands: /help /new /clear /models /model MODEL /status /metrics /exit /voice [on|off] /mic [INDEX] /voices /voice-status")
 
     def command(self, text: str) -> bool:
         parts = text.strip().split(maxsplit=1)
@@ -109,13 +114,61 @@ class MosaicCLI:
         elif name == "/metrics":
             self.show_metrics = not self.show_metrics
             self.output(f"Metrics {'on' if self.show_metrics else 'off'}.")
+        elif name in {"/voice", "/mic", "/voices", "/voice-status"}:
+            self._voice_command(name, argument)
         elif name.startswith("/"):
             self.output("Unknown command. Use /help.")
         else:
             self.send_message(text)
         return True
 
-    def send_message(self, message: str) -> None:
+    def _voice_command(self, name: str, argument: str) -> None:
+        from scripts.voice import AudioDevice, VoiceSession
+        from app.voice.audio import VoiceError
+        try:
+            if self.voice_session is None:
+                microphone = os.getenv("MOSAIC_MICROPHONE", "")
+                device = AudioDevice(int(microphone) if microphone else None,
+                                     float(os.getenv("MOSAIC_VAD_THRESHOLD", "0.015")),
+                                     float(os.getenv("MOSAIC_VAD_SILENCE_SECONDS", "0.8")))
+                self.voice_session = VoiceSession(
+                    self, device, language=os.getenv("MOSAIC_VOICE_LANGUAGE", "auto"),
+                    voice=os.getenv("MOSAIC_TTS_VOICE") or None,
+                    speed=float(os.getenv("MOSAIC_TTS_SPEED", "1")),
+                    event_sink=lambda event: self.output(f"Voice: {event.state}") if event.kind == "state" else None,
+                )
+            session = self.voice_session
+            if name == "/mic":
+                if argument:
+                    session.device.microphone = int(argument)
+                    self.output("Microphone selected.")
+                else:
+                    self.output(json.dumps(session.device.devices(), ensure_ascii=False))
+            elif name in {"/voices", "/voice-status"}:
+                path = "/voice/voices" if name == "/voices" else "/voice/status"
+                response = self.client.get(f"{self.backend_url}{path}", headers=self._auth_headers())
+                response.raise_for_status()
+                self.output(json.dumps(response.json(), ensure_ascii=False))
+                if name == "/voice-status":
+                    self.output(json.dumps(session.metrics))
+            elif argument == "off":
+                session.continuous = False
+                self.output("Voice off.")
+            elif argument in {"", "on"}:
+                self.output("Ctrl+C interrupts voice and returns to text. Microphone pauses during replies.")
+                if not argument:
+                    self.input("Press Enter to start one utterance (ends on silence): ")
+                session.run(continuous=argument == "on")
+            else:
+                self.output("Usage: /voice [on|off]")
+        except (VoiceError, ValueError) as exc:
+            self.output(str(exc) if isinstance(exc, VoiceError) else "Invalid numeric voice configuration")
+        except httpx.HTTPError:
+            self.output("Voice backend unavailable; check configuration and authentication.")
+
+    def send_message(self, message: str) -> str:
+        answer: list[str] = []
+        completed = False
         response = self.client.stream(
             "POST",
             f"{self.backend_url}/chat/stream",
@@ -129,16 +182,20 @@ class MosaicCLI:
                     data = json.loads(raw_data)
                 except json.JSONDecodeError:
                     self.output("Backend returned malformed streaming data.")
-                    return
+                    return ""
                 if event == "token":
+                    answer.append(data.get("text", ""))
                     self.write(data.get("text", ""))
                 elif event == "approval_required":
                     self._handle_approval(data)
                 elif event == "error":
                     self.output(f"Request failed: {data.get('detail', 'unknown error')}")
-                elif event == "done" and self.show_metrics:
-                    self.output(f"Metrics: {json.dumps(data.get('metrics', {}), sort_keys=True)}")
+                elif event == "done":
+                    completed = True
+                    if self.show_metrics:
+                        self.output(f"Metrics: {json.dumps(data.get('metrics', {}), sort_keys=True)}")
             self.output("")
+        return "".join(answer) if completed else ""
 
     def _handle_approval(self, data: dict[str, Any]) -> None:
         self.output(

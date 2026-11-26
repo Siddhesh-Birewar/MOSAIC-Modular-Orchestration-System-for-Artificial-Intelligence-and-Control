@@ -17,6 +17,8 @@ class Settings:
     keep_alive: str = "5m"
     system_prompt: str = ""
     api_token: str = ""
+    whisper_executable: str = ""
+    whisper_model: str = ""
     database_path: str = ":memory:"
     allowed_roots: tuple[str, ...] = ()
     allowed_applications: tuple[str, ...] = (
@@ -61,6 +63,8 @@ class Settings:
             context_limit=context_limit,
             keep_alive=os.getenv("MOSAIC_KEEP_ALIVE", "5m"),
             system_prompt=os.getenv("MOSAIC_SYSTEM_PROMPT", ""),
+            whisper_executable=os.getenv("MOSAIC_WHISPER_EXECUTABLE", ""),
+            whisper_model=os.getenv("MOSAIC_WHISPER_MODEL", ""),
             api_token=os.getenv("MOSAIC_API_TOKEN", ""),
             database_path=os.getenv("MOSAIC_DB_PATH", "").strip() or str(default_database_path()),
             allowed_roots=allowed_roots,

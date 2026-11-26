@@ -19,3 +19,16 @@
 - Conversation, chat, notes, learning, and memory endpoints require the configured bearer token. Memories are created only through explicit user-facing API requests; retrieval is bounded and labeled untrusted context. Conversation logs are not automatically promoted into memory.
 
 - Phase 4 closeout verified authentication, restart persistence, curated memory recall, learning integrity, and safe reset behavior. Transport/access URL logging is disabled and validation responses omit submitted input. SQLite integrity conflicts return a generic 409 response. The API/package release version is 0.4.0.
+
+- Phase 6 speech endpoints require bearer authentication. Voice clients accept only loopback
+  backend URLs. Audio requests are capped at 2 MB/30 seconds, mono 16 kHz 16-bit PCM; speech
+  text is capped at 1,000 characters per API call. Replies are capped to 12,000 spoken characters.
+- Recording is opt-in, continuous capture requires `/voice on`, and the microphone closes
+  while thinking/speaking. Ctrl+C cancels active work and returns to text. Speech never bypasses
+  tool policy: application launches still need a typed user approval through the existing API.
+- Raw microphone data lives in client memory and briefly in a private provider temporary
+  directory; cleanup runs on success/failure/cancellation. No audio is stored in SQLite. OS
+  caches/swap and abnormal process termination may leave traces; deletion is not secure erasure.
+- Speech executables/model paths come only from local trusted configuration, never requests
+  or model output. Fixed arguments use no shell; TTS text uses stdin. Temporary results and
+  provider errors are sanitized; personal audio/text is not logged. No models download on startup.

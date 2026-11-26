@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Phase 6 preview
+- Deferred Phase 5 dashboard/humanoid and retained phase numbering for backend-first development.
+- Added authenticated local speech APIs, Whisper.cpp and installed macOS TTS adapters, bounded PCM validation, cancellation, temporary-file cleanup, and optional sounddevice capture/playback.
+- Added explicit voice CLI modes, energy VAD, state/amplitude/playback events, sentence synthesis, and an opt-in benchmark script. Existing persistence and typed tool approval paths are reused.
+- Voice quality/end-to-end hardware verification is pending; stable metadata remains 0.4.0. Do not merge/tag Phase 6 until user confirmation.
+
+
 ## v0.4.0 — Phase 4
 - Completed local SQLite conversations, notes, learning subjects/topics, and explicitly curated memories. Personal APIs require bearer authentication.
 - User verified restart persistence for notes (UUID/content/timestamps), ordered conversation history, curated memory recall in a fresh conversation, and learning status/progress. Verified 401, 201 and invalid-subject 404 responses.

@@ -4,7 +4,7 @@ MOSAIC starts as a local-first modular monolith. The FastAPI backend owns config
 
 The React/TypeScript/Tailwind dashboard and Tauri shell are separate clients of the backend; no UI code belongs in backend modules. SQLite is the local persistence layer. Ollama is accessed through a narrow HTTP adapter so runtime details do not leak into domain logic. Plugin/MCP adapters will enter through a validated host interface. Services bind to localhost during development.
 
-The backend includes a local intelligence layer, a typed tool host, and a SQLite persistence layer. Conversations are UUID-isolated with ordered messages and bounded context. The database uses versioned `user_version` migrations, foreign keys, transactions, a single serialized connection, and restrictive local file permissions. The Ollama adapter supports streaming structured function calls. Tool calls pass through registry lookup, strict input validation, default-deny permission evaluation, approval verification, bounded execution, output validation, and content-free audit recording. Tools are enabled for model-selected calls only on authenticated requests. Notes, learning topics, and curated memories use separate tables and authenticated APIs. Memory retrieval is bounded and keyword-based; memory is never inferred or saved automatically. The process-local inference lock serializes model use. Voice and frontend are not implemented.
+The backend includes a local intelligence layer, a typed tool host, and a SQLite persistence layer. Conversations are UUID-isolated with ordered messages and bounded context. The database uses versioned `user_version` migrations, foreign keys, transactions, a single serialized connection, and restrictive local file permissions. The Ollama adapter supports streaming structured function calls. Tool calls pass through registry lookup, strict input validation, default-deny permission evaluation, approval verification, bounded execution, output validation, and content-free audit recording. Tools are enabled for model-selected calls only on authenticated requests. Notes, learning topics, and curated memories use separate tables and authenticated APIs. Memory retrieval is bounded and keyword-based; memory is never inferred or saved automatically. The process-local inference lock serializes model use. Phase 6 adds local speech adapters and CLI voice orchestration; the Phase 5 frontend/humanoid remains deferred.
 
 ## API
 
@@ -31,3 +31,24 @@ Configuration: `MOSAIC_DB_PATH` optionally selects the SQLite file; the default 
 The CLI at `scripts/chat.py` uses only the FastAPI API. It handles SSE incrementally and sends the token only in the authorization header when responding to approval requests. The Ollama adapter accumulates assistant content and structured tool calls across streamed chunks, merging partial calls with matching Ollama call indices or IDs; calls lacking either are retained as separate entries. Reasoning fields are excluded. Each assembled call still undergoes schema validation. If the model does not return Ollama's structured `tool_calls` field, MOSAIC does not infer or execute a tool from prose.
 
 Phase 4 closeout uses API/package version 0.4.0. Run a single backend worker. Conversation resets, deletes, and model updates share the inference lock; queued inference reloads current stored context and commits complete turns inside that lock. Transport/access logs are suppressed because URLs can contain private search terms; validation and integrity error responses omit submitted values and SQL details.
+
+## Phase 6 voice preview
+
+`app.voice` contains audio validation and provider contracts (`STTProvider`/`TTSProvider`).
+`POST /voice/transcribe` accepts bounded mono 16 kHz PCM WAV bytes with `language=auto|en|hi`.
+`POST /voice/synthesize` accepts bounded text, installed voice name, and speed; it returns WAV.
+`GET /voice/status` and `/voice/voices` report setup and actual installed voice metadata.
+All routes require the same local bearer token. A process-local voice lock bounds provider
+concurrency; disconnects cancel subprocess work and temporary directories are removed.
+
+`scripts.voice` owns explicitly activated microphone capture, energy VAD, playback, and the
+voice state machine. It calls the authenticated FastAPI speech APIs and the existing
+`MosaicCLI.send_message` SSE conversation flow; it introduces no separate inference or tool
+execution path. Replies are synthesized sentence-by-sentence after chat completes. This
+trades first-audio latency for predictable approval and failure behavior. Microphone capture
+and playback do not overlap. Text approval is required; speech cannot approve its own tools.
+
+`VoiceEvent` exposes state, measured PCM RMS, speech start/end and software playback
+position/elapsed timing through an injectable event sink. Phoneme/viseme fields remain null.
+Events contain no audio, transcript, or credentials. Actual hardware output latency is not
+measured; future clients may consume these events without coupling backend modules to UI.

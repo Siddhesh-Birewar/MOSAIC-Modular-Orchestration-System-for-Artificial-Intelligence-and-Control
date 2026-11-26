@@ -15,3 +15,7 @@
 - **No filesystem roots by default:** explicit narrow roots are required. Descriptor-based no-follow opens, sensitive-name denial, regular-file checks, and size limits provide defense in depth.
 - **Application approval every time:** launches remain fixed to known application paths and cannot run until a short-lived, one-use, argument-bound user approval is consumed.
 - **Bounded in-memory audit:** audit events contain outcome metadata only and use a fixed-size ring; durable audit storage requires a later privacy and retention decision.
+
+- **Phase 5 deferred, Phase 6 next:** preserve phase numbering and frontend prototypes while completing backend voice first. Stable release remains 0.4.0 pending voice manual acceptance.
+- **Local speech adapters:** Whisper.cpp for existing approved multilingual weights; installed macOS voices provide an initial TTS adapter without speech model downloads. Kokoro/IndicF5 evaluation is in VOICE.md.
+- **Half-duplex voice and explicit activation:** capture never overlaps playback; `/voice on` explicitly enables repeated listening. Ctrl+C is the supported interruption path. All voice text passes through the existing authenticated conversation/tool pipeline and typed approval.
